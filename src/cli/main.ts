@@ -14,6 +14,8 @@ import { findWorkspace, loadWorkspace } from "../workspace/load.js";
 import { migrateWorkspaceFile } from "../workspace/migrate.js";
 import { formatDoctor } from "./format.js";
 import { registerAnalysisCommands } from "./analysis-commands.js";
+import { registerBridgeCommands } from "./bridge-commands.js";
+import { registerDemoCommands } from "./demo-commands.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerStyleCommands } from "./style-commands.js";
@@ -239,6 +241,8 @@ export function buildProgram(): Command {
   registerRunCommands(program);
   registerAnalysisCommands(program);
   registerTacticCommands(program);
+  registerBridgeCommands(program);
+  registerDemoCommands(program);
 
   return program;
 }

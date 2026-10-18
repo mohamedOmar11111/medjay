@@ -1,0 +1,17 @@
+{
+  "note": "Invented ids for the synthetic etlaala-ksa dataset. Real exports need a connector (or this file) to turn names into platform ids.",
+  "meta": {
+    "adset": {
+      "UMRAH-ALL-Broad-Reels": "120200000000001",
+      "UMRAH-Riyadh-Family-Reels": "120200000000002",
+      "UMRAH-Jeddah-Lookalike-1pct": "120200000000003",
+      "HM-Couples-Interest": "120200000000004"
+    }
+  },
+  "google_ads": {
+    "campaign": {
+      "Search_Umrah_Packages_AR": "22002",
+      "PMax_Trips_KSA": "22001"
+    }
+  }
+}

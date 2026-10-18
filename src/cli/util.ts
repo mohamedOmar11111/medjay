@@ -33,6 +33,7 @@ export const cliActor = () => `cli:${userInfo().username}`;
 
 export interface OpenedPlanContext {
   deps: PlanDeps;
+  store: Store;
   workspaceId: string;
   close: () => void;
 }
@@ -61,6 +62,7 @@ export async function openPlanContext(workspaceOption: string | undefined, needS
       ...(signing ? { signing } : {}),
       now: () => new Date(),
     },
+    store,
     workspaceId: config.workspace.id,
     close: () => store.close(),
   };

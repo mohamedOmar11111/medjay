@@ -59,6 +59,8 @@ export const TacticSchema = z
     title: z.string().min(1).max(200),
     pillars: z.array(z.number().int().min(1).max(11)).default([]),
     jobs: z.array(z.string().min(1).max(40)).default([]),
+    /** Finding kinds from `mdj diagnose` this tactic is a response to (for example bleeding_adset). */
+    matches: z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).default([]),
     source: SourceSchema,
     state: z.enum(TACTIC_STATES),
     evidence_scope: z.enum(["workspace", "vault_prior"]).default("workspace"),

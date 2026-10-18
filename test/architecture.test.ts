@@ -14,17 +14,19 @@ const ALLOWED: Record<string, string[]> = {
   models: ["shared"],
   ingest: ["store", "audit", "shared"],
   tactics: ["shared"],
+  demo: ["bridge", "analysis", "ingest", "plan", "shield", "store", "audit", "tactics", "workspace", "models", "shared"],
+  bridge: ["plan", "models", "shield", "store", "audit", "analysis", "ingest", "style", "tactics", "workspace", "shared"],
   analysis: ["ingest", "store", "audit", "shared"],
   pillars: ["shared"],
   shield: ["shared"],
   store: ["shared"],
   style: ["shared"],
-  plan: ["shield", "store", "audit", "models", "ingest", "shared"],
+  plan: ["shield", "store", "audit", "models", "ingest", "analysis", "shared"],
   runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
-  cli: ["tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
-  root: ["cli", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
+  cli: ["demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  root: ["cli", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {
@@ -109,6 +111,19 @@ describe("architecture", () => {
     for (const file of await sourceFiles(join(SRC, "runtime", "loop"))) {
       for (const match of (await readFile(file, "utf8")).matchAll(IMPORT_ANY)) {
         if (FORBIDDEN.test(match[1]!)) offenders.push(`${relative(SRC, file)} imports ${match[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+  it("keeps the bridge unable to spawn processes, and lets only the handler approve or strike", async () => {
+    const offenders: string[] = [];
+    const IMPORT_ANY = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+    for (const file of await sourceFiles(join(SRC, "bridge"))) {
+      const rel = relative(SRC, file).split(sep).join("/");
+      for (const match of (await readFile(file, "utf8")).matchAll(IMPORT_ANY)) {
+        const spec = match[1]!;
+        if (/^(?:node:)?(?:child_process|net|http|https|worker_threads|vm)$/.test(spec)) offenders.push(`${rel} imports ${spec}`);
+        if (/\/plan\/(?:strike|approve)\.js$/.test(spec) && rel !== "bridge/handler.ts") offenders.push(`${rel} imports ${spec} (only handler.ts may)`);
       }
     }
     expect(offenders).toEqual([]);

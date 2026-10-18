@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "../constants.js";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -189,6 +189,36 @@ const MIGRATIONS: readonly string[] = [
      p50 REAL NOT NULL,
      p90 REAL NOT NULL,
      p_positive REAL NOT NULL
+   );`,
+  // 7: the command bridge: every inbound message once (replay protection), a checkpointed job queue, kill-switch state
+  `CREATE TABLE bridge_messages (
+     message_id TEXT PRIMARY KEY,
+     provider TEXT NOT NULL,
+     received_at TEXT NOT NULL,
+     sender_hash TEXT NOT NULL,
+     via TEXT NOT NULL,
+     command TEXT NOT NULL,
+     outcome TEXT NOT NULL
+   );
+   CREATE INDEX bridge_messages_sender ON bridge_messages (sender_hash, received_at);
+   CREATE TABLE bridge_jobs (
+     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+     message_id TEXT NOT NULL,
+     sender_hash TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     args_json TEXT NOT NULL,
+     status TEXT NOT NULL,
+     result_text TEXT,
+     error TEXT,
+     attempts INTEGER NOT NULL DEFAULT 0,
+     lease_until TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE TABLE bridge_state (
+     key TEXT PRIMARY KEY,
+     value TEXT NOT NULL,
+     updated_at TEXT NOT NULL
    );`,
 ];
 

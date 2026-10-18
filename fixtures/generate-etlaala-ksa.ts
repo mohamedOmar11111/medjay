@@ -283,8 +283,85 @@ bnpl_fee: ${range(0, 0.015, 0.03, "share of deal value, blended over BNPL and ca
 All numbers here are invented for the Medjay fixture dataset.
 `;
 
+
+/** What a connector would look up. The exports carry names, not platform ids, so the demo reads them from here. All invented. */
+export const PLATFORM_IDS_JSON = `${JSON.stringify(
+  {
+    note: "Invented ids for the synthetic etlaala-ksa dataset. Real exports need a connector (or this file) to turn names into platform ids.",
+    meta: { adset: { "UMRAH-ALL-Broad-Reels": "120200000000001", "UMRAH-Riyadh-Family-Reels": "120200000000002", "UMRAH-Jeddah-Lookalike-1pct": "120200000000003", "HM-Couples-Interest": "120200000000004" } },
+    google_ads: { campaign: { Search_Umrah_Packages_AR: "22002", PMax_Trips_KSA: "22001" } },
+  },
+  null,
+  2,
+)}
+`;
+
+export const TACTIC_BLEED_MD = `---
+id: TACTIC-ETL-001
+title: Pause ad sets with spend but no CRM deal after five active days
+matches:
+  - bleeding_adset
+source:
+  kind: practitioner
+  ref: internal review of etlaala-ksa, September 2026 (synthetic)
+  date: 2026-09-30
+state: unverified
+tags:
+  markets:
+    - KSA
+  verticals:
+    - travel
+---
+# Pause ad sets that bleed
+
+If an ad set has at least five active days, at least 5% of spend, and the CRM shows no deal from it, pause it and
+move the budget to the ad set with the lowest cost per deal. Test it before treating it as a rule.
+`;
+
+export const TACTIC_PMAX_MD = `---
+id: TACTIC-ETL-002
+title: Allocate budget by the platform's own reported conversions
+matches:
+  - over_attribution
+source:
+  kind: vendor
+  ref: platform best-practice guide (synthetic)
+  date: 2026-08-15
+state: invalidated
+experiment:
+  id: EXP-ETL-014
+  hypothesis: Budget shifted by platform-reported conversions improves cost per CRM deal by at least 10%
+  metric: cost_per_deal_sar
+  baseline:
+    value: 1040
+    range: 2026-08-01..2026-08-28
+    snapshot_id: snap_etl_014
+  design:
+    type: before_after
+    min_sample: 40
+    duration_days: 28
+    min_effect: 0.1
+result:
+  confidence: 0.04
+  method: bayesian
+  sample_size: 63
+  date_range: 2026-08-29..2026-09-26
+  effect: -0.12
+  outcome_source: crm
+  grading: outcome
+  caveats:
+    - synthetic result for the fixture
+---
+# Do not allocate by platform-reported conversions
+
+Tested on etlaala-ksa and it made cost per CRM deal worse. Kept so it is not proposed again.
+`;
+
 export const FILES: Record<string, () => string> = {
   "ingestion.mappings.yaml": () => MAPPINGS_YAML,
+  "context/platform-ids.json": () => PLATFORM_IDS_JSON,
+  "tactics/TACTIC-ETL-001.md": () => TACTIC_BLEED_MD,
+  "tactics/TACTIC-ETL-002.md": () => TACTIC_PMAX_MD,
   "context/unit-economics.md": () => UNIT_ECONOMICS_MD,
   "data/imports/meta-ads-2026-10-10_16.csv": metaCsv,
   "data/imports/google-ads-2026-10-10_16.csv": googleCsv,

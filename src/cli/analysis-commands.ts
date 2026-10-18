@@ -3,10 +3,8 @@ import type { Command } from "commander";
 import { diagnose } from "../analysis/diagnose.js";
 import { renderDiagnosis, renderIngest, renderSimulation, renderSnapshot } from "../analysis/render.js";
 import { scout, type Snapshot } from "../analysis/scout.js";
-import { recordOf, refOf, scaleOf, SimulationRepo, type BudgetMove } from "../analysis/sim-repo.js";
 import { loadUnitEconomics, simulate, type UnitEconomics } from "../analysis/simulate.js";
-import { readPlanFile } from "../plan/files.js";
-import { reviseWithSimulation } from "../plan/revise.js";
+import { simulatePlan } from "../plan/simulate-plan.js";
 import { Ledger } from "../audit/ledger.js";
 import { ingestDropzone, type IngestReport } from "../ingest/ingest.js";
 import { loadMappings } from "../ingest/mapping.js";
@@ -14,7 +12,7 @@ import { Store } from "../store/db.js";
 import { loadWorkspace } from "../workspace/load.js";
 import { cliActor, guarded, LEDGER_FILE, openPlanContext, STORE_FILE, workspaceDirOrThrow } from "./util.js";
 
-interface Opened {
+export interface Opened {
   dir: string;
   store: Store;
   ledger: Ledger;
@@ -26,7 +24,7 @@ interface Opened {
   close: () => void;
 }
 
-async function open(workspaceOption: string | undefined): Promise<Opened> {
+export async function openAnalysis(workspaceOption: string | undefined): Promise<Opened> {
   const dir = await workspaceDirOrThrow(workspaceOption);
   const { config, dropzoneDir } = await loadWorkspace(dir);
   const mappings = await loadMappings(dir);
@@ -71,7 +69,7 @@ export function registerAnalysisCommands(program: Command): void {
     .option("--workspace <dir>", "workspace folder")
     .action((opts: { days: number; ingest: boolean; json?: boolean; workspace?: string }) =>
       guarded(async () => {
-        const w = await open(opts.workspace);
+        const w = await openAnalysis(opts.workspace);
         try {
           const report = opts.ingest ? await w.ingest() : undefined;
           const snapshot = w.snapshot(opts.days);
@@ -93,7 +91,7 @@ export function registerAnalysisCommands(program: Command): void {
     .option("--workspace <dir>", "workspace folder")
     .action((opts: { days: number; ingest: boolean; json?: boolean; workspace?: string }) =>
       guarded(async () => {
-        const w = await open(opts.workspace);
+        const w = await openAnalysis(opts.workspace);
         try {
           const report = opts.ingest ? await w.ingest() : undefined;
           const diagnosis = diagnose(w.snapshot(opts.days));
@@ -127,7 +125,7 @@ export function registerAnalysisCommands(program: Command): void {
     .option("--workspace <dir>", "workspace folder")
     .action((opts: SimulateOptions) =>
       guarded(async () => {
-        const w = await open(opts.workspace);
+        const w = await openAnalysis(opts.workspace);
         try {
           if (opts.ingest) await w.ingest();
           const snapshot = w.snapshot(opts.days);
@@ -190,60 +188,36 @@ const planNumber = (value: string): number => {
   return n;
 };
 
-const WHY_NOT: Record<string, string> = {
-  no_budget_change: "has no budget change",
-  mixed_currency: "mixes currencies in its budget changes",
-  no_baseline: "raises a budget that starts at zero, so a percentage cannot be derived",
-  not_a_scale_up: "does not raise any budget",
-};
-
 /** Simulate the budget increase a proposed plan makes; when it passes the gate, attach it as a new revision of the plan. */
 async function simulateForPlan(w: Opened, opts: SimulateOptions, economics: UnitEconomics, observed: { cost_per_deal: number | null; blended_mer: number | null } | undefined): Promise<number> {
   const ctx = await openPlanContext(w.dir, false);
   try {
-    const row = ctx.deps.repo.require(opts.plan as number);
-    const plan = await readPlanFile(ctx.deps.dir, row);
-    const moves: BudgetMove[] = plan.actions.flatMap((a) => (a.type === "budget_change" ? [{ from: a.from, to: a.to, currency: a.currency }] : []));
-    const scale = scaleOf(moves, opts.horizonDays);
-    if (!scale.ok) {
-      out(`Plan #${row.number} ${WHY_NOT[scale.reason]}; ${scale.reason === "not_a_scale_up" || scale.reason === "no_budget_change" ? "no simulation is needed." : "no simulation can be run for it."}`);
-      return scale.reason === "not_a_scale_up" || scale.reason === "no_budget_change" ? 0 : 1;
-    }
-    if (economics.problems.length === 0 && economics.currency !== scale.currency) {
-      throw new Error(`plan #${row.number} changes budgets in ${scale.currency} but context/unit-economics.md is in ${economics.currency}; Medjay never converts silently`);
-    }
-    const seed = opts.seed ?? Number.parseInt(plan.plan_hash.slice(0, 8), 16);
-    const result = simulate(economics, {
-      spend: scale.spend,
-      scalePct: scale.scalePct,
-      ...(opts.elasticity === undefined ? {} : { elasticity: opts.elasticity }),
-      seed,
-      ...(opts.draws === undefined ? {} : { draws: opts.draws }),
+    const outcome = await simulatePlan(ctx.deps, w.store, {
+      planNumber: opts.plan as number,
+      economics,
       observed,
+      horizonDays: opts.horizonDays,
+      attach: opts.attach,
+      actor: cliActor(),
+      ...(opts.seed === undefined ? {} : { seed: opts.seed }),
+      ...(opts.draws === undefined ? {} : { draws: opts.draws }),
+      ...(opts.elasticity === undefined ? {} : { elasticity: opts.elasticity }),
     });
-    if (result.status !== "ok") {
-      out(opts.json ? JSON.stringify(result, null, 2) : renderSimulation(result, w.currency));
+    if (outcome.kind === "not_applicable") {
+      out(outcome.message);
+      return outcome.needed ? 1 : 0;
+    }
+    if (outcome.kind === "insufficient_inputs") {
+      out(opts.json ? JSON.stringify(outcome.result, null, 2) : renderSimulation(outcome.result, w.currency));
       return 1;
     }
-    const record = new SimulationRepo(w.store).put(recordOf(result, opts.horizonDays, plan.plan_hash, new Date()));
-    const min = ctx.deps.policy.limits.min_simulation_p_positive;
-    const passes = record.p50 > 0 && record.p_positive >= min;
-    await w.ledger.append({
-      actor: cliActor(),
-      event: "simulation.completed",
-      payload: { plan: row.number, plan_hash: plan.plan_hash, simulation: record.sim_id, seed: record.seed, scale_pct: record.scale_pct, p10: record.p10, p50: record.p50, p90: record.p90, p_positive: record.p_positive, passes },
-    });
+    const { record, passes, minPositive: min, attachedAs, result } = outcome;
     const lines = [renderSimulation(result, w.currency)];
-    lines.push("", `Simulation ${record.sim_id} for plan #${row.number}: P(above zero) ${(record.p_positive * 100).toFixed(0)}% (policy needs ${(min * 100).toFixed(0)}% and a positive P50) - ${passes ? "PASSES" : "DOES NOT PASS"}.`);
-    let attached: number | null = null;
+    lines.push("", `Simulation ${record.sim_id} for plan #${opts.plan}: P(above zero) ${(record.p_positive * 100).toFixed(0)}% (policy needs ${(min * 100).toFixed(0)}% and a positive P50) - ${passes ? "PASSES" : "DOES NOT PASS"}.`);
     if (!passes) lines.push("The plan was left as it is. Lower the budget increase, or update context/unit-economics.md if its inputs are out of date, then simulate again.");
     else if (!opts.attach) lines.push(`Not attached (--no-attach). Cite it in a proposals file as "simulation": { "id": "${record.sim_id}" }.`);
-    else {
-      const revised = await reviseWithSimulation(ctx.deps, row.number, refOf(record), { actor: cliActor() });
-      attached = revised.row.number;
-      lines.push(`Plan #${row.number} is superseded by plan #${attached}, which carries this simulation. next: mdj approve ${attached}`);
-    }
-    out(opts.json ? JSON.stringify({ simulation: record, passes, attached_as_plan: attached, result }, null, 2) : lines.join("\n"));
+    else lines.push(`Plan #${opts.plan} is superseded by plan #${attachedAs}, which carries this simulation. next: mdj approve ${attachedAs}`);
+    out(opts.json ? JSON.stringify({ simulation: record, passes, attached_as_plan: attachedAs, result }, null, 2) : lines.join("\n"));
     return passes ? 0 : 1;
   } finally {
     ctx.close();
