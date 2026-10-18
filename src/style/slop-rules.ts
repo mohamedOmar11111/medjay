@@ -79,8 +79,9 @@ export const ARABIC_INFLATION: readonly string[] = ["رحلة لا تُنسى", 
 export const ARABIC_STARTER: readonly string[] = ["في عالم اليوم", "تجربة فريدة من نوعها", "لا شك أن"];
 /** Vocabulary that marks a dialect. Mixing the two in one text block is flagged. */
 export const ARABIC_DIALECT = {
-  egyptian: ["دلوقتي", "دلوقت", "عشان", "كدا", "كده"],
-  khaleeji: ["الحين", "وايد", "عشانك"],
+  // Only markers that belong to one dialect. Shared words (عشان, عشانك) are deliberately excluded.
+  egyptian: ["دلوقتي", "دلوقت", "كدا", "كده", "إزاي", "أوي", "برضو", "مفيش"],
+  khaleeji: ["الحين", "وايد", "توك", "شلون", "أبشر", "يبيلك"],
 } as const;
 
 /** Arabic match with an optional attached conjunction prefix (و or ف), which is part of the match. */

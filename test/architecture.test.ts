@@ -19,7 +19,7 @@ const ALLOWED: Record<string, string[]> = {
   plan: ["shield", "store", "audit", "models", "shared"],
   runtime: ["shield", "audit", "style", "plan", "workspace", "store", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
-  doctor: ["workspace", "models", "audit", "pillars", "store", "style", "shared"],
+  doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
   cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
   root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
@@ -79,7 +79,9 @@ describe("architecture", () => {
     const FORBIDDEN_MODULES = /^(?:node:)?(?:fs|fs\/promises|child_process|net|http|https|http2|dgram|tls|worker_threads|vm|cluster)$/;
     const FORBIDDEN_LOCAL = /\/(?:plan\/(?:strike|export|approve|files|propose|repo|signing)|audit\/ledger|store\/db)\.js$/;
     const IMPORT_ANY = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
-    for (const file of await sourceFiles(join(SRC, "runtime", "tools"))) {
+    // tools act on the world, and the context builder assembles prompts: neither may touch disk, processes or network
+    const guarded = [...(await sourceFiles(join(SRC, "runtime", "tools"))), ...(await sourceFiles(join(SRC, "runtime", "context")))];
+    for (const file of guarded) {
       const text = await readFile(file, "utf8");
       for (const match of text.matchAll(IMPORT_ANY)) {
         const spec = match[1]!;

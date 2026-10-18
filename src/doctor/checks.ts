@@ -8,6 +8,8 @@ import { ModelCatalog } from "../models/catalog.js";
 import { CredentialResolver, probeKeystore, type CredentialRef, type KeyStore } from "../models/credentials.js";
 import { resolveSlot, SLOT_NAMES, type ResolvedTarget } from "../models/slots.js";
 import { isStubbed, pillarById } from "../pillars/catalog.js";
+import { evaluateRules } from "../shield/evaluate.js";
+import { effectiveRunLimits, loadPolicy, PolicyError } from "../shield/policy.js";
 import { Store } from "../store/db.js";
 import { loadStyleContext, StyleContextError } from "../style/context.js";
 import { findWorkspace, loadWorkspace, WorkspaceError, type LoadedWorkspace } from "../workspace/load.js";
@@ -15,7 +17,7 @@ import { findWorkspace, loadWorkspace, WorkspaceError, type LoadedWorkspace } fr
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 
 export interface DoctorCheck {
-  id: "node" | "keychain" | "workspace" | "pillars" | "credentials" | "endpoints" | "models" | "dropzone" | "style" | "store" | "ledger";
+  id: "node" | "keychain" | "workspace" | "policy" | "pillars" | "credentials" | "endpoints" | "models" | "dropzone" | "style" | "store" | "ledger";
   name: string;
   status: CheckStatus;
   detail: string;
@@ -278,6 +280,34 @@ async function checkDropzone(loaded: LoadedWorkspace): Promise<DoctorCheck> {
     : check("dropzone", "Dropzone", "warn", `${shown} does not exist yet`, `Create it (mkdir ${shown}) and drop exports there`);
 }
 
+const TOOL_CLASS_RULES = ["read.*", "draft.*", "propose.*"] as const;
+
+/** Never edits the policy: an older file that lacks the tool-class rules gets a hint, not a silent change. */
+async function checkPolicyFile(dir: string): Promise<DoctorCheck> {
+  try {
+    const policy = await loadPolicy(dir);
+    const { limits, raised } = effectiveRunLimits(policy);
+    const summary = `${limits.max_steps} steps, ${limits.max_tokens} tokens, ${limits.max_cost_usd} per run`;
+    const raisedNote = raised.length > 0 ? `; raised above the engine default: ${raised.map((r) => `${r.key} ${r.default}->${r.configured}`).join(", ")}` : "";
+    const notAllowed = TOOL_CLASS_RULES.filter((rule) => evaluateRules(policy.rules, rule.replace("*", "tool"), "tool:tool", policy.defaults.effect) !== "allow");
+    if (notAllowed.length > 0) {
+      return check(
+        "policy",
+        "Policy",
+        "warn",
+        `${notAllowed.join(", ")} not allowed by shield.policy.yaml, so an agent run would pause (approval_required) at the first such tool call; limits: ${summary}${raisedNote}`,
+        `If you want agent runs to use them, add rules like { action: "read.*", resource: "*", effect: allow } (same for draft.* and propose.*). Medjay does not change your policy for you`,
+      );
+    }
+    return check("policy", "Policy", "pass", `limits: ${summary}${raisedNote}; read.*, draft.*, propose.* allowed`);
+  } catch (error) {
+    if (error instanceof PolicyError) {
+      return check("policy", "Policy", "fail", [error.message.split("\n")[0], ...error.issues.slice(0, 6).map((i) => `${i.path || "(root)"}: ${i.message}`)].join("; "), "Fix shield.policy.yaml (see the paths above)");
+    }
+    throw error;
+  }
+}
+
 async function checkStyle(loaded: LoadedWorkspace): Promise<DoctorCheck> {
   const style = loaded.config.style;
   try {
@@ -326,6 +356,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [checkNode(), await checkKeychain(options.keystore)];
   const { check: workspaceCheck, loaded, dir } = await loadForDoctor(options);
   checks.push(workspaceCheck);
+  checks.push(dir ? await checkPolicyFile(dir) : skipped("policy", "Policy"));
 
   if (loaded) {
     checks.push(checkPillars(loaded));

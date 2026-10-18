@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSecretLeaks } from "./secrets.js";
+import { findSecretLeaks, redactSecretValues } from "./secrets.js";
 
 const paths = (value: unknown) => findSecretLeaks(value).map((l) => l.path).sort();
 
@@ -44,6 +44,21 @@ describe("findSecretLeaks: reference objects", () => {
     expect(paths({ api_token: { value: "plain" } })).toEqual(["api_token"]);
     expect(paths({ api_token: { keychain_ref: "x", value: "plain" } })).toEqual(["api_token"]);
     expect(paths({ api_token: {} })).toEqual(["api_token"]);
+  });
+});
+
+describe("redactSecretValues", () => {
+  it("replaces provider-key-shaped values anywhere in free text and counts them", () => {
+    const out = redactSecretValues("use sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 or AIzaSyA1234567890abcdefghijklmnopqrstuvw now");
+    expect(out.text).toBe("use [REDACTED_SECRET] or [REDACTED_SECRET] now");
+    expect(out.count).toBe(2);
+  });
+
+  it("leaves ordinary text alone, and works repeatedly (no regex state leaks between calls)", () => {
+    expect(redactSecretValues("nothing secret here: 12345 and MEDJAY_ANTHROPIC_API_KEY")).toEqual({ text: "nothing secret here: 12345 and MEDJAY_ANTHROPIC_API_KEY", count: 0 });
+    const key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    expect(redactSecretValues(key).count).toBe(1);
+    expect(redactSecretValues(key).count).toBe(1);
   });
 });
 

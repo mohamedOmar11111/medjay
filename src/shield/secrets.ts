@@ -49,6 +49,19 @@ const looksLikeSecretKey = (key: string): boolean => {
   return SECRET_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 };
 
+/** Replace provider-key-shaped values in free text. Used before text reaches a model prompt or a log. */
+export function redactSecretValues(text: string): { text: string; count: number } {
+  let count = 0;
+  let out = text;
+  for (const pattern of SECRET_VALUE_PATTERNS) {
+    out = out.replace(new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`), () => {
+      count += 1;
+      return "[REDACTED_SECRET]";
+    });
+  }
+  return { text: out, count };
+}
+
 export function findSecretLeaks(value: unknown, path = ""): SecretLeak[] {
   if (typeof value === "string") {
     if (PHONE_NUMBER.test(value)) return [{ path, reason: "phone_number" }];

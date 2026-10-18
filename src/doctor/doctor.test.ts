@@ -99,7 +99,7 @@ describe("runDoctor: basics", () => {
     const report = await run();
     expect(report.checks.filter((c) => c.status === "fail")).toEqual([]);
     expect(report.ok).toBe(true);
-    for (const id of ["node", "keychain", "workspace", "credentials", "endpoints", "dropzone", "style", "store", "ledger"]) {
+    for (const id of ["node", "keychain", "workspace", "policy", "credentials", "endpoints", "dropzone", "style", "store", "ledger"]) {
       expect(byId(report.checks, id).status, id).toBe("pass");
     }
   });
@@ -267,6 +267,83 @@ describe("runDoctor: local endpoints and models", () => {
     });
     const check = byId((await run({}, { "http://localhost:11434/v1/health/models": ollamaModels("qwen2.5") })).checks, "endpoints");
     expect(check.status).toBe("pass");
+  });
+});
+
+describe("runDoctor: policy", () => {
+  const editPolicy = async (change: (doc: Record<string, any>) => void) => {
+    const path = join(ws, "shield.policy.yaml");
+    const doc = parse(await readFile(path, "utf8"));
+    change(doc);
+    await writeFile(path, stringify(doc));
+  };
+
+  it("passes a current policy and shows the run limits", async () => {
+    const check = byId((await run()).checks, "policy");
+    expect(check.status).toBe("pass");
+    expect(check.detail).toMatch(/12 steps/);
+    expect(check.detail).toMatch(/150000 tokens/);
+  });
+
+  it("warns, never fails, when an older policy lacks read, draft or propose allow rules, and says why a run would pause", async () => {
+    await editPolicy((d) => {
+      d.rules = [{ action: "plan.strike", resource: "*", effect: "ask" }];
+    });
+    const report = await run();
+    const check = byId(report.checks, "policy");
+    expect(check.status).toBe("warn");
+    expect(check.detail).toMatch(/read.*/);
+    expect(check.detail).toMatch(/draft.*/);
+    expect(check.detail).toMatch(/propose.*/);
+    expect(check.detail).toMatch(/pause/i);
+    expect(check.remedy).toMatch(/effect: allow/);
+    expect(report.ok).toBe(true);
+  });
+
+  it("names only the classes that are missing", async () => {
+    await editPolicy((d) => {
+      d.rules = d.rules.filter((r: { action: string }) => r.action !== "propose.*");
+    });
+    const check = byId((await run()).checks, "policy");
+    expect(check.status).toBe("warn");
+    expect(check.detail).toMatch(/propose.*/);
+    expect(check.detail).not.toMatch(/read.*/);
+  });
+
+  it("warns when a class is explicitly set to ask or deny", async () => {
+    await editPolicy((d) => {
+      d.rules = d.rules.map((r: { action: string }) => (r.action === "draft.*" ? { ...r, effect: "ask" } : r));
+    });
+    expect(byId((await run()).checks, "policy").detail).toMatch(/draft.*/);
+  });
+
+  it("never edits the policy file itself", async () => {
+    await editPolicy((d) => {
+      d.rules = [];
+    });
+    const before = await readFile(join(ws, "shield.policy.yaml"), "utf8");
+    await run();
+    expect(await readFile(join(ws, "shield.policy.yaml"), "utf8")).toBe(before);
+  });
+
+  it("reports raised run limits so a raise is visible", async () => {
+    await editPolicy((d) => {
+      d.runtime_limits = { max_steps: 30, max_tokens: 150000, max_cost_usd: 3 };
+    });
+    expect(byId((await run()).checks, "policy").detail).toMatch(/raised.*max_steps.*max_cost_usd/s);
+  });
+
+  it("fails on an invalid policy with the path of the problem", async () => {
+    await editPolicy((d) => {
+      d.limits.max_daily_budget_increase_pct = "lots";
+    });
+    const check = byId((await run()).checks, "policy");
+    expect(check.status).toBe("fail");
+    expect(check.detail).toMatch(/max_daily_budget_increase_pct/);
+  });
+
+  it("is skipped without a valid workspace", async () => {
+    expect(byId((await run({ cwd: root })).checks, "policy").status).toBe("skip");
   });
 });
 

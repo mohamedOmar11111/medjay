@@ -101,22 +101,24 @@ describe("Arabic dialect drift (warning)", () => {
     expect(finding?.message).toContain("الحين");
   });
 
-  it.each(["كدا", "كده", "عشان"])("treats %s as Egyptian", (marker) => {
+  it.each(["كدا", "كده", "إزاي", "أوي", "برضو", "مفيش", "دلوقتي"])("treats %s as Egyptian", (marker) => {
     expect(hit(`احجز ${marker} واحنا نرتب. الحين نحجز`, "ar.dialect_drift")).toBeDefined();
   });
 
-  it.each(["الحين", "وايد", "عشانك"])("treats %s as Khaleeji", (marker) => {
+  it.each(["الحين", "وايد", "توك", "شلون", "أبشر", "يبيلك"])("treats %s as Khaleeji", (marker) => {
     expect(hit(`احجز ${marker} ونرتب. دلوقتي يلا`, "ar.dialect_drift")).toBeDefined();
   });
 
   it("does not warn for one dialect on its own", () => {
-    expect(hit("احجز دلوقتي عشان كدا أحسن", "ar.dialect_drift")).toBeUndefined();
-    expect(hit("احجز الحين، الأسعار وايد حلوة عشانك", "ar.dialect_drift")).toBeUndefined();
+    expect(hit("احجز دلوقتي كدا أحسن ومفيش مشكلة", "ar.dialect_drift")).toBeUndefined();
+    expect(hit("احجز الحين، الأسعار وايد حلوة، أبشر", "ar.dialect_drift")).toBeUndefined();
   });
 
-  it("does not mix up عشان (Egyptian) with عشانك (Khaleeji)", () => {
+  it("treats عشان and عشانك as shared words: they never signal a dialect on their own", () => {
+    expect(hit("عشان الحين وايد", "ar.dialect_drift")).toBeUndefined();
     expect(hit("عشانك الحين وايد", "ar.dialect_drift")).toBeUndefined();
-    expect(hit("عشان الحين", "ar.dialect_drift")).toBeDefined();
+    expect(hit("عشان دلوقتي كدا", "ar.dialect_drift")).toBeUndefined();
+    expect(hit("عشانك دلوقتي ومفيش مشكلة", "ar.dialect_drift")).toBeUndefined();
   });
 
   it("judges each paragraph separately", () => {
