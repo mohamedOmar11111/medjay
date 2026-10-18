@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
+import { Option } from "commander";
 import { bindingProblem, SimulationRepo, refOf, type BudgetMove } from "../analysis/sim-repo.js";
 import { approvePlan, holdPlan, rejectPlan } from "../plan/approve.js";
 import type { CompileInput } from "../plan/compile.js";
@@ -9,6 +10,9 @@ import { renderPlan } from "../plan/render.js";
 import type { PlanState } from "../plan/repo.js";
 import { strikePlan } from "../plan/strike.js";
 import { validateExport } from "../plan/validate.js";
+import { parseObserved } from "../plan/observed.js";
+import { rollbackPlan } from "../plan/rollback.js";
+import { sha256, verifyPlan } from "../plan/verify.js";
 import { Store } from "../store/db.js";
 import { cliActor, guarded, openPlanContext, STORE_FILE } from "./util.js";
 import { join } from "node:path";
@@ -178,6 +182,52 @@ export function registerPlanCommands(program: Command): void {
         try {
           await rejectPlan(ctx.deps, planNumber(number), { actor: cliActor(), ...(opts.reason ? { reason: opts.reason } : {}) });
           process.stdout.write(`plan #${number} rejected\n`);
+        } finally {
+          ctx.close();
+        }
+      }),
+    );
+
+  program
+    .command("verify <number>")
+    .description("compare what the platform now shows with what a struck plan said it should (from a file you export after importing)")
+    .requiredOption("--observed <file>", "a JSON list of observations, or a Google Ads Editor export (.csv)")
+    .addOption(new Option("--format <format>", "observed file format (default: from the extension)").choices(["json", "google-editor-csv"]))
+    .option("--workspace <dir>", "workspace folder")
+    .action((number: string, opts: { observed: string; format?: "json" | "google-editor-csv"; workspace?: string }) =>
+      guarded(async () => {
+        const ctx = await openPlanContext(opts.workspace, false);
+        try {
+          const n = planNumber(number);
+          const text = await readFile(opts.observed, "utf8");
+          const observations = parseObserved(text, opts.format ?? (opts.observed.toLowerCase().endsWith(".csv") ? "google-editor-csv" : "json"));
+          const { row, report } = await verifyPlan(ctx.deps, n, observations, { actor: cliActor(), observedSha256: sha256(text) });
+          process.stdout.write(`plan #${n}: ${report.all_verified ? "VERIFIED" : "NOT VERIFIED"} (${row.state})\n`);
+          for (const r of report.results) {
+            const word = { verified: "ok", mismatch: "MISMATCH", not_observed: "NOT SEEN", manual: "manual" }[r.status];
+            process.stdout.write(`  ${r.action_id}  ${r.type.padEnd(24)} ${word}${r.detail ? `  ${r.detail}` : ""}\n`);
+          }
+          if (!report.all_verified) process.stdout.write(`If the platform is wrong, fix it by hand or roll the plan back: mdj rollback ${n}\n`);
+          return report.all_verified ? 0 : 1;
+        } finally {
+          ctx.close();
+        }
+      }),
+    );
+
+  program
+    .command("rollback <number>")
+    .description("compile a new plan that undoes a struck plan (exact inverses); it still needs approval and a strike")
+    .option("--workspace <dir>", "workspace folder")
+    .action((number: string, opts: { workspace?: string }) =>
+      guarded(async () => {
+        const ctx = await openPlanContext(opts.workspace, false);
+        try {
+          const n = planNumber(number);
+          const { row, plan: compiled, skipped } = await rollbackPlan(ctx.deps, n, { actor: cliActor() });
+          process.stdout.write(`${renderPlan(compiled, { number: row.number, state: row.state })}\n`);
+          for (const s of skipped) process.stdout.write(`not undone: ${s.action_id}: ${s.reason}\n`);
+          process.stdout.write(`\nnext: mdj approve ${row.number}, then mdj strike ${row.number}. Plan #${n} is marked rolled back once that strike succeeds.\n`);
         } finally {
           ctx.close();
         }

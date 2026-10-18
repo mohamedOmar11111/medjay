@@ -24,7 +24,7 @@ const TRANSITIONS: Record<PlanState, readonly PlanState[]> = {
   held: ["approved", "proposed", "rejected", "expired"],
   approved: ["executing", "expired"],
   executing: ["executed", "exported", "partial", "failed"],
-  partial: ["executing", "expired"],
+  partial: ["executing", "expired", "rolled_back"],
   failed: ["executing", "expired"],
   executed: ["verified", "rolled_back"],
   exported: ["verified", "rolled_back"],

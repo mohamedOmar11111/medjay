@@ -17,6 +17,8 @@ export function proposalOf(action: CompiledAction): ProposalInput {
       return { type: "status_change", target: action.target, from: action.from, to: action.to, executor: action.executor };
     case "add_negative_keywords":
       return { type: "add_negative_keywords", target: action.target, terms: action.terms, executor: action.executor };
+    case "remove_negative_keywords":
+      return { type: "remove_negative_keywords", target: action.target, terms: action.terms, executor: action.executor };
     case "code_patch":
       return { type: "code_patch", artifact: action.artifact };
     case "register_experiment":

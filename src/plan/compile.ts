@@ -35,6 +35,8 @@ export interface CompileInput {
   origin: Origin;
   proposals: ProposalInput[];
   simulation?: SimulationRef;
+  /** Only a rollback sets this: the plan being undone. Every action must then be an exact inverse of one of its actions. */
+  rollbackOf?: { plan_id: string; actions: CompiledAction[] };
   now: Date;
   expiresInHours?: number;
 }
@@ -67,7 +69,33 @@ function validate(proposals: ProposalInput[]): Proposal[] {
       );
     }
     const proposal = parsed.data;
-    return proposal.type === "add_negative_keywords" ? { ...proposal, terms: dedupeTerms(proposal.terms) } : proposal;
+    return proposal.type === "add_negative_keywords" || proposal.type === "remove_negative_keywords" ? { ...proposal, terms: dedupeTerms(proposal.terms) } : proposal;
+  });
+}
+
+const sameTarget = (a: { target: { platform: string; kind: string; id: string } }, b: { target: { platform: string; kind: string; id: string } }) =>
+  a.target.platform === b.target.platform && a.target.kind === b.target.kind && a.target.id === b.target.id;
+const termKey = (t: Term) => `${t.match}\u0000${t.text.toLowerCase()}`;
+
+/** Is `action` exactly the undo of `original`? */
+function inverts(action: CompiledAction, original: CompiledAction): boolean {
+  if (action.type === "budget_change" && original.type === "budget_change") return sameTarget(action, original) && action.currency === original.currency && action.from === original.to && action.to === original.from;
+  if (action.type === "status_change" && original.type === "status_change") return sameTarget(action, original) && action.from === original.to && action.to === original.from;
+  const pair = (action.type === "remove_negative_keywords" && original.type === "add_negative_keywords") || (action.type === "add_negative_keywords" && original.type === "remove_negative_keywords");
+  if (pair && "terms" in action && "terms" in original) {
+    const had = new Set(original.terms.map(termKey));
+    return sameTarget(action, original) && action.terms.every((t) => had.has(termKey(t)));
+  }
+  return false;
+}
+
+/** A rollback may only undo what the original plan did; budget increases that restore a budget are tagged so policy treats them as a restoration. */
+function asRollback(actions: CompiledAction[], original: CompiledAction[]): CompiledAction[] {
+  return actions.map((action) => {
+    if (!original.some((o) => inverts(action, o))) {
+      throw new PlanInputError(`action ${action.id} (${action.type}) is not the exact inverse of any action in the plan being rolled back`);
+    }
+    return action.type === "budget_change" ? { ...action, restores: true } : action;
   });
 }
 
@@ -80,6 +108,8 @@ function toAction(proposal: Proposal, index: number): CompiledAction {
       return { ...proposal, id, irreversible: false, inverse: { type: "status_change", to: proposal.from } };
     case "add_negative_keywords":
       return { ...proposal, id, irreversible: false, inverse: { type: "remove_negative_keywords", terms: proposal.terms } };
+    case "remove_negative_keywords":
+      return { ...proposal, id, irreversible: false, inverse: { type: "add_negative_keywords", terms: proposal.terms } };
     case "code_patch":
       return { ...proposal, id, irreversible: false, executor: "patch", deploy: "never_automatic", inverse: { type: "revert_patch" } };
     case "register_experiment":
@@ -91,7 +121,7 @@ export function policyActions(actions: CompiledAction[]): PolicyAction[] {
   return actions.map((a) => {
     const target = "target" in a ? { platform: a.target.platform, kind: a.target.kind, id: a.target.id } : { platform: "workspace", kind: a.type, id: a.id };
     const base: PolicyAction = { id: a.id, type: a.type, target, irreversible: a.irreversible };
-    return a.type === "budget_change" ? { ...base, from: a.from, to: a.to, currency: a.currency } : base;
+    return a.type === "budget_change" ? { ...base, from: a.from, to: a.to, currency: a.currency, ...(a.restores ? { restores: true } : {}) } : base;
   });
 }
 
@@ -126,11 +156,16 @@ export function compilePlan(input: CompileInput, context: CompileContext): { pla
   }
   const simulation = input.simulation === undefined ? undefined : SimulationSchema.parse(input.simulation);
   const proposals = validate(input.proposals);
-  const actions = proposals.map(toAction);
+  if (origin.data.rollback_of !== undefined && input.rollbackOf === undefined) {
+    throw new PlanInputError("origin.rollback_of is set by `mdj rollback` only; a proposals file cannot claim to be a rollback");
+  }
+  const built = proposals.map(toAction);
+  const actions = input.rollbackOf ? asRollback(built, input.rollbackOf.actions) : built;
+  const originFinal = input.rollbackOf ? { ...origin.data, rollback_of: input.rollbackOf.plan_id } : origin.data;
 
   const created_at = input.now.toISOString();
   const expires_at = new Date(input.now.getTime() + (input.expiresInHours ?? DEFAULT_EXPIRY_HOURS) * 3_600_000).toISOString();
-  const plan_id = `pl_${sha256(canonicalJson({ workspace: input.workspace, client: input.client ?? null, origin: origin.data, proposals, simulation: simulation ?? null, created_at })).slice(0, 12)}`;
+  const plan_id = `pl_${sha256(canonicalJson({ workspace: input.workspace, client: input.client ?? null, origin: originFinal, proposals, simulation: simulation ?? null, created_at })).slice(0, 12)}`;
 
   const policy_result = checkPolicy(
     context.policy,
@@ -146,7 +181,7 @@ export function compilePlan(input: CompileInput, context: CompileContext): { pla
     ...(input.client === undefined ? {} : { client: input.client }),
     created_at,
     expires_at,
-    origin: origin.data,
+    origin: originFinal,
     preconditions: preconditionsOf(actions),
     actions,
     ...(simulation === undefined ? {} : { simulation }),

@@ -30,8 +30,9 @@ export function csvField(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
+// Removing a negative keyword is a delete, and the Editor CSV delete syntax has not been validated, so it is a manual step.
 const isGoogle = (a: CompiledAction): a is Extract<CompiledAction, { target: { platform: string } }> =>
-  "target" in a && a.target.platform === "google_ads" && a.executor === "export";
+  "target" in a && a.type !== "remove_negative_keywords" && a.target.platform === "google_ads" && a.executor === "export";
 
 function campaignNameProblem(action: Extract<CompiledAction, { target: { name?: string } }>): string | undefined {
   const name = action.target.name;
@@ -122,6 +123,8 @@ function describe(action: CompiledAction): string {
       return `Change the status of ${action.target.platform} ${action.target.kind} "${action.target.name ?? action.target.id}" (id ${action.target.id}) from ${action.from} to ${action.to}.`;
     case "add_negative_keywords":
       return `Add negative keywords to ${action.target.platform} ${action.target.kind} "${action.target.name ?? action.target.id}": ${action.terms.map((t) => `${t.text} [${t.match.toLowerCase()}]`).join(", ")}.`;
+    case "remove_negative_keywords":
+      return `Remove these negative keywords from ${action.target.platform} ${action.target.kind} "${action.target.name ?? action.target.id}": ${action.terms.map((t) => `${t.text} [${t.match.toLowerCase()}]`).join(", ")}.`;
     case "code_patch":
       return `Review and apply the patch ${action.artifact} yourself (Medjay never deploys code).`;
     case "register_experiment":

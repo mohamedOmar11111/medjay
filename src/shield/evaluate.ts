@@ -16,6 +16,8 @@ export interface PolicyAction {
   from?: number;
   to?: number;
   currency?: string;
+  /** budget_change only: this exactly restores a budget an earlier approved plan changed (a rollback). */
+  restores?: boolean;
   irreversible: boolean;
 }
 
@@ -93,7 +95,9 @@ export function checkPolicy(policy: Policy, subject: PolicySubject, context: Pol
   }
 
   for (const action of budgets) {
-    if (action.to > action.from) {
+    if (action.to > action.from && action.restores) {
+      checks.push({ rule: "max_daily_budget_increase_pct", ok: true, action_id: action.id, note: "restores a budget an approved plan changed (rollback)" });
+    } else if (action.to > action.from) {
       const pct = action.from > 0 ? round6(((action.to - action.from) / action.from) * 100) : Number.POSITIVE_INFINITY;
       const limit = policy.limits.max_daily_budget_increase_pct;
       const check: PolicyCheck = { rule: "max_daily_budget_increase_pct", ok: pct <= limit + EPSILON, action_id: action.id, limit };
@@ -107,7 +111,7 @@ export function checkPolicy(policy: Policy, subject: PolicySubject, context: Pol
     }
   }
 
-  if (policy.limits.require_simulation_for_scale && budgets.some((a) => a.to > a.from)) {
+  if (policy.limits.require_simulation_for_scale && budgets.some((a) => a.to > a.from && !a.restores)) {
     const sim = subject.simulation;
     if (!sim) {
       checks.push({

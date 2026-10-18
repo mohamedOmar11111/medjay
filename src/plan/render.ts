@@ -18,6 +18,8 @@ function renderAction(action: CompiledAction): string[] {
     }
     case "status_change":
       return [`${action.id}  status_change  ${entity(action)}`, `    - status: ${action.from}`, `    + status: ${action.to}`];
+    case "remove_negative_keywords":
+      return [`${action.id}  remove_negative_keywords  ${entity(action)}`, ...action.terms.map((t) => `    - negative [${t.match.toLowerCase()}]: ${t.text}`)];
     case "add_negative_keywords":
       return [`${action.id}  add_negative_keywords  ${entity(action)}`, ...action.terms.map((t) => `    + negative [${t.match.toLowerCase()}]: ${t.text}`)];
     case "code_patch":

@@ -47,6 +47,7 @@ export const ProposalSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("budget_change"), ...budgetShape }).strict().refine((a) => a.from !== a.to, "from and to are the same (no change)"),
   z.object({ type: z.literal("status_change"), ...statusShape }).strict().refine((a) => a.from !== a.to, "from and to are the same (no change)"),
   z.object({ type: z.literal("add_negative_keywords"), ...negativesShape }).strict(),
+  z.object({ type: z.literal("remove_negative_keywords"), ...negativesShape }).strict(),
   z.object({ type: z.literal("code_patch"), ...patchShape }).strict(),
   z.object({ type: z.literal("register_experiment"), ...experimentShape }).strict(),
 ]);
@@ -56,13 +57,19 @@ export type Proposal = z.output<typeof ProposalSchema>;
 const base = { id: z.string().regex(/^a\d+$/), irreversible: z.boolean() };
 
 const CompiledActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("budget_change"), ...base, ...budgetShape, inverse: z.object({ type: z.literal("budget_change"), to: Budget }).strict() }).strict(),
+  z.object({ type: z.literal("budget_change"), ...base, ...budgetShape, restores: z.literal(true).optional(), inverse: z.object({ type: z.literal("budget_change"), to: Budget }).strict() }).strict(),
   z.object({ type: z.literal("status_change"), ...base, ...statusShape, inverse: z.object({ type: z.literal("status_change"), to: Status }).strict() }).strict(),
   z.object({
     type: z.literal("add_negative_keywords"),
     ...base,
     ...negativesShape,
     inverse: z.object({ type: z.literal("remove_negative_keywords"), terms: z.array(Term) }).strict(),
+  }).strict(),
+  z.object({
+    type: z.literal("remove_negative_keywords"),
+    ...base,
+    ...negativesShape,
+    inverse: z.object({ type: z.literal("add_negative_keywords"), terms: z.array(Term) }).strict(),
   }).strict(),
   z.object({
     type: z.literal("code_patch"),
@@ -120,6 +127,8 @@ const OriginSchema = z
     finding_ids: z.array(z.string()).default([]),
     tactic_id: z.string().optional(),
     experiment_id: z.string().optional(),
+    /** Set only by `mdj rollback`: the plan this one undoes. */
+    rollback_of: z.string().regex(/^pl_[0-9a-f]{12}$/).optional(),
   })
   .strict();
 export type Origin = z.input<typeof OriginSchema>;

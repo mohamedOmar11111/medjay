@@ -35,7 +35,7 @@ const FORMULA_START = /^[=+\-@\t\r]/;
 const read = (path: string) => readFile(path).catch(() => undefined);
 
 function googleIds(plan: Plan): string[] {
-  return plan.actions.filter((a) => "target" in a && a.target.platform === "google_ads" && a.executor === "export").map((a) => a.id);
+  return plan.actions.filter((a) => "target" in a && a.type !== "remove_negative_keywords" && a.target.platform === "google_ads" && a.executor === "export").map((a) => a.id);
 }
 function metaIds(plan: Plan): string[] {
   return plan.actions.filter((a) => (a.type === "budget_change" || a.type === "status_change") && a.target.platform === "meta" && ["campaign", "adset"].includes(a.target.kind) && a.executor === "export").map((a) => a.id);

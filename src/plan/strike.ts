@@ -92,6 +92,19 @@ export async function strikePlan(deps: PlanDeps, number: number, options: { acto
   const state: PlanState = succeeded === results.length ? "exported" : succeeded === 0 ? "failed" : "partial";
   deps.repo.transition(number, state, deps.now());
 
+  // Striking a rollback plan is what makes the original plan "rolled back".
+  if (state === "exported" && plan.origin.rollback_of) {
+    const original = deps.repo.byId(plan.origin.rollback_of);
+    if (original && ["exported", "executed", "verified", "partial"].includes(original.state)) {
+      try {
+        deps.repo.transition(original.number, "rolled_back", deps.now());
+        await deps.ledger.append({ actor: options.actor, event: "plan.rolled_back", payload: { number: original.number, plan_id: original.plan_id, by: number, by_plan_id: plan.plan_id } });
+      } catch {
+        // the original is in a state that cannot move to rolled_back (for example partial); it stays as it is
+      }
+    }
+  }
+
   const csv = await readFile(join(run.exportDir, "manifest.json")).catch(() => undefined);
   await deps.ledger.append({
     actor: options.actor,
