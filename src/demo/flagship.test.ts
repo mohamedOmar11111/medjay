@@ -61,6 +61,15 @@ describe("the flagship closed loop on etlaala-ksa", () => {
     expect(await readFile(join(root, "c", "tactics", "TACTIC-ETL-001.md"), "utf8")).toMatch(/state: hypothesized/);
   });
 
+  it("uses a fixed clock by default, so the demo never reports stale data as the calendar moves on", async () => {
+    const lines: string[] = [];
+    await runFlagship({ fixtureDir: FIXTURE, dir: join(root, "clock"), autoApprove: false, say: (l) => lines.push(l) });
+    expect(lines.join("\n")).not.toMatch(/day\(s\) old/);
+    const later: string[] = [];
+    await runFlagship({ fixtureDir: FIXTURE, dir: join(root, "later"), autoApprove: false, now: () => new Date("2026-10-30T07:00:00Z"), say: (l) => later.push(l) });
+    expect(later.join("\n")).toMatch(/day\(s\) old/);
+  });
+
   it("is deterministic: three runs on the same data and clock compile the same plan hashes and simulation", async () => {
     const results = [await run("d1", false), await run("d2", false), await run("d3", false)];
     expect(new Set(results.map((r) => r.plans[0]!.hash)).size).toBe(1);

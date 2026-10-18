@@ -5,7 +5,8 @@ import { diagnose } from "../analysis/diagnose.js";
 import { loadUnitEconomics } from "../analysis/simulate.js";
 import { handleWebhook, processJobs, type BridgeDeps, type WebhookResult } from "../bridge/handler.js";
 import { buildWebhook, type SimKind } from "../bridge/simulator.js";
-import { PROVIDERS, type Provider } from "../bridge/types.js";
+import { CloudApiTransport, ConsoleTransport, deliver, GenericWebhookTransport, type BridgeTransport } from "../bridge/transport.js";
+import { PRESETS, resolveWebhook, webhookFromWorkspace, type WebhookSpec } from "../bridge/webhook-spec.js";
 import { BridgeRepo } from "../bridge/queue.js";
 import { CredentialResolver, KeyringStore } from "../models/credentials.js";
 import { simulatePlan } from "../plan/simulate-plan.js";
@@ -18,15 +19,23 @@ const DEFAULT_SIM_SECRET = "medjay-simulator-secret";
 
 interface OpenedBridge {
   deps: BridgeDeps;
+  transport: BridgeTransport;
   close: () => void;
 }
 
 /** Everything the bridge needs from a real workspace. `secret` overrides the configured one (simulator only). */
-async function openBridge(workspaceOption: string | undefined, overrides: { secret?: string; provider?: Provider } = {}): Promise<OpenedBridge> {
+async function openBridge(workspaceOption: string | undefined, overrides: { secret?: string; preset?: string } = {}): Promise<OpenedBridge> {
   const dir = await workspaceDirOrThrow(workspaceOption);
   const { config } = await loadWorkspace(dir);
   const wa = config.command_bridge.whatsapp;
-  const provider: Provider = overrides.provider ?? (wa.provider === "respond_io_webhook" ? "respond_io_webhook" : "whatsapp_cloud_api");
+  let webhook: WebhookSpec;
+  if (overrides.preset) {
+    const preset = PRESETS[overrides.preset];
+    if (!preset) throw new Error(`unknown preset "${overrides.preset}"; known: ${Object.keys(PRESETS).join(", ")}`);
+    webhook = preset.provider === "cloud_api" ? resolveWebhook({ provider: "cloud_api" }) : resolveWebhook({ provider: "generic_hmac", preset: overrides.preset });
+  } else {
+    webhook = webhookFromWorkspace(wa);
+  }
 
   let secret = overrides.secret ?? "";
   if (secret === "" && wa.credentials) {
@@ -34,6 +43,7 @@ async function openBridge(workspaceOption: string | undefined, overrides: { secr
     secret = resolved.value ?? "";
   }
 
+  const creds = new CredentialResolver();
   const ctx = await openPlanContext(workspaceOption, true);
   const keystore = new KeyringStore();
   const resolver = {
@@ -45,7 +55,7 @@ async function openBridge(workspaceOption: string | undefined, overrides: { secr
   };
   const deps: BridgeDeps = {
     workspaceId: ctx.workspaceId,
-    provider,
+    webhook,
     secret,
     policy: ctx.deps.policy,
     ledger: ctx.deps.ledger,
@@ -68,8 +78,22 @@ async function openBridge(workspaceOption: string | undefined, overrides: { secr
         simulatePlan(ctx.deps, ctx.store, { planNumber, economics: await loadUnitEconomics(dir), attach: true, actor: `bridge:${cliActor()}` }),
     },
   };
-  return { deps, close: ctx.close };
+  const transport = await makeTransport(wa, creds);
+  return { deps, transport, close: ctx.close };
 }
+
+type WhatsAppBlock = Awaited<ReturnType<typeof loadWorkspace>>["config"]["command_bridge"]["whatsapp"];
+
+/** The outbound transport the workspace configures (console when none), with its token resolved at run time. */
+async function makeTransport(wa: WhatsAppBlock, creds: CredentialResolver): Promise<BridgeTransport> {
+  const t = wa.transport;
+  if (!t || t.type === "console") return new ConsoleTransport();
+  const token = wa.credentials ? ((await creds.resolve({ keychainRef: wa.credentials.api_token.keychain_ref, envFallback: wa.credentials.api_token.env_fallback })).value ?? "") : "";
+  const fetchFn = fetch as unknown as ConstructorParameters<typeof GenericWebhookTransport>[0]["fetch"];
+  if (t.type === "generic_webhook") return new GenericWebhookTransport({ url: t.url as string, token, fetch: fetchFn });
+  return new CloudApiTransport({ phoneNumberId: t.phone_number_id as string, token, version: t.api_version, fetch: fetchFn });
+}
+
 
 function printResult(result: WebhookResult): void {
   const out = process.stdout;
@@ -92,20 +116,22 @@ export function registerBridgeCommands(program: Command): void {
     .requiredOption("--from <e164>", "sender number, e.g. +966551234567")
     .option("--text <text>", "message text, or the transcript for voice")
     .option("--button-id <id>", "button id from an approval card (for --kind button)")
-    .addOption(new Option("--provider <provider>", "webhook format").choices(PROVIDERS).default("whatsapp_cloud_api"))
+    .addOption(new Option("--preset <preset>", "webhook format preset (default: the workspace's own webhook configuration, else cloud_api)").choices(Object.keys(PRESETS)))
+    .option("--send", "also deliver the replies through the workspace's configured transport (default: just print them)")
     .option("--message-id <id>", "provider message id (reusing one tests replay protection)")
     .option("--bad-signature", "sign with the wrong secret, to see the request refused")
     .option("--secret <secret>", `signing secret (default: the workspace's, else "${DEFAULT_SIM_SECRET}")`)
     .option("--workspace <dir>", "workspace folder")
-    .action((opts: { kind: SimKind; from: string; text?: string; buttonId?: string; provider: Provider; messageId?: string; badSignature?: boolean; secret?: string; workspace?: string }) =>
+    .action((opts: { kind: SimKind; from: string; text?: string; buttonId?: string; preset?: string; send?: boolean; messageId?: string; badSignature?: boolean; secret?: string; workspace?: string }) =>
       guarded(async () => {
-        const probe = await openBridge(opts.workspace, { provider: opts.provider, ...(opts.secret ? { secret: opts.secret } : {}) });
+        const probe = await openBridge(opts.workspace, { ...(opts.preset ? { preset: opts.preset } : {}), ...(opts.secret ? { secret: opts.secret } : {}) });
         try {
           const secret = probe.deps.secret || DEFAULT_SIM_SECRET;
           const deps = { ...probe.deps, secret };
-          const req = buildWebhook({ provider: opts.provider, kind: opts.kind, from: opts.from, secret, ...(opts.text === undefined ? {} : { text: opts.text }), ...(opts.buttonId ? { buttonId: opts.buttonId } : {}), ...(opts.messageId ? { id: opts.messageId } : {}), ...(opts.badSignature ? { badSignature: true } : {}) });
+          const req = buildWebhook({ webhook: deps.webhook, kind: opts.kind, from: opts.from, secret, ...(opts.text === undefined ? {} : { text: opts.text }), ...(opts.buttonId ? { buttonId: opts.buttonId } : {}), ...(opts.messageId ? { id: opts.messageId } : {}), ...(opts.badSignature ? { badSignature: true } : {}) });
           const result = await handleWebhook(deps, req);
           printResult(result);
+          if (opts.send) for (const r of await deliver(result.replies, probe.transport)) process.stdout.write(`sent: ${r.ok ? "ok" : `failed${r.status ? ` (${r.status})` : ""} ${r.detail ?? ""}`}\n`);
           return result.status === 200 ? 0 : 1;
         } finally {
           probe.close();
@@ -131,7 +157,7 @@ export function registerBridgeCommands(program: Command): void {
 
   bridge
     .command("serve")
-    .description("listen for provider webhooks on a local port (put a public HTTPS tunnel in front of it). Sending replies back to WhatsApp is not built yet: replies are printed.")
+    .description("listen for webhooks on a local port (put a public HTTPS tunnel in front of it); replies go out through the workspace's configured transport")
     .option("--port <n>", "port", (v) => Number(v), 8787)
     .option("--workspace <dir>", "workspace folder")
     .action((opts: { port: number; workspace?: string }) =>
@@ -158,6 +184,7 @@ export function registerBridgeCommands(program: Command): void {
                 const result = await handleWebhook(b.deps, { rawBody: Buffer.concat(chunks).toString("utf8"), headers });
                 printResult(result);
                 res.writeHead(result.status).end();
+                for (const r of await deliver(result.replies, b.transport)) if (!r.ok) process.stderr.write(`reply not delivered: ${r.status ?? ""} ${r.detail ?? ""}\n`);
               } catch (error) {
                 process.stderr.write(`bridge error: ${error instanceof Error ? error.message : String(error)}\n`);
                 res.writeHead(500).end();
@@ -166,7 +193,7 @@ export function registerBridgeCommands(program: Command): void {
           });
         });
         await new Promise<void>((resolve) => server.listen(opts.port, "127.0.0.1", resolve));
-        process.stdout.write(`bridge listening on http://127.0.0.1:${opts.port} (${b.deps.provider}). Ctrl+C to stop.\n`);
+        process.stdout.write(`bridge listening on http://127.0.0.1:${opts.port} (${b.deps.webhook.label}, replies via ${b.transport.kind}). Ctrl+C to stop.\n`);
         await new Promise<void>((resolve) => process.once("SIGINT", resolve));
         server.close();
         b.close();

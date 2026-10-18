@@ -69,7 +69,7 @@ describe("rollbackPlan", () => {
     expect(struck.state).toBe("exported");
     expect(h.deps.repo.require(n).state).toBe("rolled_back");
     const csv = (await readFile(join(struck.exportDir, "google-ads-editor.csv"), "utf8")).slice(1).split("\r\n").filter(Boolean);
-    expect(csv).toEqual(["Campaign,Ad Group,Keyword,Criterion Type,Campaign Status,Budget", "Brand Search,,,,Enabled,200"]);
+    expect(csv).toEqual(["Campaign,Ad Group,Keyword,Criterion Type,Campaign Status,Budget,Action", "Brand Search,,,,Enabled,200,", "Brand Search,,free,Negative Broad,,,Remove"]);
     expect(await readFile(join(struck.exportDir, "CHANGES.md"), "utf8")).toMatch(/Remove these negative keywords from google_ads campaign "Brand Search": free \[broad\]/);
     const metaDoc = JSON.parse(await readFile(join(struck.exportDir, "meta-mutations.json"), "utf8"));
     expect(metaDoc.requests[0]).toMatchObject({ params: { daily_budget: "10000" }, expect_before: { daily_budget: "4000" } });

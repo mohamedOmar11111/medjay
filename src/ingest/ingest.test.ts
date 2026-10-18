@@ -29,7 +29,7 @@ describe("ingestDropzone", () => {
       ["meta_ads", "ingested", 28],
       ["google_ads", "ingested", 28],
       ["ga4", "ingested", 49],
-      ["respond_io", "ingested", 172],
+      ["crm", "ingested", 172],
     ]);
     expect(report.files.flatMap((f) => f.issues.filter((i) => i.severity === "error"))).toEqual([]);
     expect(report.unmapped).toEqual([]);
@@ -44,7 +44,7 @@ describe("ingestDropzone", () => {
     const flagged = report.files.flatMap((f) => f.issues.filter((i) => i.kind === "suspicious_text").map((i) => `${f.mapping_id}:${i.column}`));
     // the Google campaign name repeats on each of the 7 days; the CRM cell is one lead
     expect(flagged.filter((f) => f === "google_ads:Campaign")).toHaveLength(7);
-    expect(flagged.filter((f) => f === "respond_io:utm.campaign")).toHaveLength(1);
+    expect(flagged.filter((f) => f === "crm:utm.campaign")).toHaveLength(1);
     expect(flagged).toHaveLength(8);
   });
 

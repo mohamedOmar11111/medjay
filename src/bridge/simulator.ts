@@ -1,12 +1,13 @@
-// Builds signed webhook requests locally, in the real provider formats, so the whole bridge can be
-// exercised without a public tunnel: tests, `mdj bridge simulate-webhook`, and the demo.
+// Builds signed webhook requests locally, in the real provider format (Cloud API) or through the
+// pointers of a generic webhook spec, so the whole bridge can be exercised without a public tunnel:
+// tests, `mdj bridge simulate-webhook`, and the demo.
 import { signBody } from "./signature.js";
-import type { Provider } from "./types.js";
+import type { FieldPointers, WebhookSpec } from "./webhook-spec.js";
 
 export type SimKind = "text" | "voice" | "voice_text" | "button" | "image";
 
 export interface SimSpec {
-  provider: Provider;
+  webhook: WebhookSpec;
   kind: SimKind;
   /** E.164, with the +. */
   from: string;
@@ -41,25 +42,66 @@ function cloudMessage(spec: SimSpec, id: string): Record<string, unknown> {
   }
 }
 
-function respondMessage(spec: SimSpec): Record<string, unknown> {
+function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
+  const parts = path.split(".");
+  let node = target;
+  for (const part of parts.slice(0, -1)) {
+    const next = node[part];
+    node = typeof next === "object" && next !== null ? (next as Record<string, unknown>) : (node[part] = {});
+  }
+  node[parts[parts.length - 1] as string] = value;
+}
+
+/** A message in the shape the spec's pointers describe. */
+function genericMessage(spec: SimSpec, id: string): Record<string, unknown> {
+  const f = spec.webhook.fields as FieldPointers;
+  const map = spec.webhook.type_map;
+  const out: Record<string, unknown> = {};
+  const set = (pointer: string | undefined, value: unknown) => {
+    if (pointer !== undefined && value !== undefined) setPath(out, pointer, value);
+  };
+  if (spec.webhook.only_when) setPath(out, spec.webhook.only_when.path, spec.webhook.only_when.equals);
+  set(f.message_id, id);
+  set(f.sender_phone, spec.from);
+  set(f.timestamp, (spec.timestamp ?? 1790000000) * 1000);
   switch (spec.kind) {
     case "text":
-      return { type: "text", text: spec.text ?? "" };
-    case "voice":
-      return { type: "attachment", attachment: { type: "audio", ...(spec.text ? { transcript: spec.text } : {}) } };
     case "voice_text":
-      return { type: "text", text: spec.text ?? "", transcribed: true };
-    default:
-      return { type: "attachment", attachment: { type: "image" } };
+      set(f.message_type, map.text[0]);
+      set(f.text, spec.text ?? "");
+      if (spec.kind === "voice_text") set(f.is_transcription, true);
+      break;
+    case "voice":
+      // a relay with a separate media type sends the message as an attachment of audio type
+      set(f.message_type, f.media_type ? "attachment" : map.audio[0]);
+      set(f.media_type, map.audio[0]);
+      set(f.transcript, spec.text);
+      break;
+    case "button":
+      set(f.message_type, map.button[0]);
+      set(f.button_id, spec.buttonId ?? "");
+      break;
+    case "image":
+      set(f.message_type, f.media_type ? "attachment" : "image");
+      set(f.media_type, "image");
+      break;
   }
+  return out;
 }
 
 export function buildWebhook(spec: SimSpec): { rawBody: string; headers: Record<string, string> } {
   const id = spec.id ?? nextId();
   const body =
-    spec.provider === "whatsapp_cloud_api"
+    spec.webhook.provider === "cloud_api"
       ? { object: "whatsapp_business_account", entry: [{ changes: [{ field: "messages", value: { messaging_product: "whatsapp", messages: [cloudMessage(spec, id)] } }] }] }
-      : { event_type: "message.received", contact: { phone: spec.from }, message: { messageId: id, timestamp: (spec.timestamp ?? 1790000000) * 1000, message: respondMessage(spec) } };
+      : spec.webhook.messages_path
+        ? (() => {
+            const root: Record<string, unknown> = {};
+            setPath(root, spec.webhook.messages_path, [genericMessage(spec, id)]);
+            if (spec.webhook.only_when) setPath(root, spec.webhook.only_when.path, spec.webhook.only_when.equals);
+            return root;
+          })()
+        : genericMessage(spec, id);
   const rawBody = JSON.stringify(body);
-  return { rawBody, headers: { "content-type": "application/json", ...signBody(spec.provider, rawBody, spec.badSignature ? `${spec.secret}-wrong` : spec.secret) } };
+  return { rawBody, headers: { "content-type": "application/json", ...signBody(spec.webhook, rawBody, spec.badSignature ? `${spec.secret}-wrong` : spec.secret) } };
 }

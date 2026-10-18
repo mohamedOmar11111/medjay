@@ -16,16 +16,47 @@ export type Command =
 const ARABIC_INDIC = "٠١٢٣٤٥٦٧٨٩";
 const ascii = (t: string) => t.replace(/[٠-٩]/g, (d) => String(ARABIC_INDIC.indexOf(d)));
 
+/** Arabic matching key: no diacritics or tatweel, one alef, single spaces. */
+const arabicKey = (t: string) =>
+  t
+    .normalize("NFKC")
+    .replace(/[ً-ٰٟـ]/g, "")
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Read and status aliases only. Approvals (STRIKE) have none: they are typed in ASCII. */
+const ARABIC_ALIASES: Record<string, Command> = {
+  [arabicKey("حالة")]: { kind: "status" },
+  [arabicKey("نبض")]: { kind: "pulse" },
+  [arabicKey("فحص")]: { kind: "scout" },
+  [arabicKey("تشخيص")]: { kind: "diagnose" },
+  [arabicKey("إيقاف الكل")]: { kind: "pause_all" },
+};
+
 const PLAN = String.raw`#?(\d{1,6})`;
 const STRIKE = new RegExp(String.raw`^STRIKE\s+${PLAN}\s+([0-9A-F]{8,64})(?:\s+(\d{6}))?$`, "i");
 const STRIKE_PARTIAL = new RegExp(String.raw`^STRIKE\s+${PLAN}(?:\s+[0-9A-F]{0,7})?$`, "i");
-const WITH_PLAN = new RegExp(String.raw`^(SIMULATE|HOLD|DROP)\s+${PLAN}$`, "i");
+const HOLD_DROP = new RegExp(String.raw`^(HOLD|DROP)\s+${PLAN}$`, "i");
+const SIMULATE = new RegExp(String.raw`^SIMULATE\s+${PLAN}$`, "i");
 const CAP = /^CAP\s/i;
 
 export function parseCommand(raw: string): Command {
+  // Approval verbs are matched on the text exactly as typed: no Unicode folding, so full-width or
+  // look-alike letters and Arabic-Indic digits can never spell STRIKE, HOLD or DROP.
+  const typed = raw.trim().replace(/\s+/g, " ");
+  const strike = STRIKE.exec(typed);
+  if (strike) return { kind: "strike", plan: Number(strike[1]), hash: (strike[2] as string).toLowerCase(), ...(strike[3] ? { code: strike[3] } : {}) };
+  const partial = STRIKE_PARTIAL.exec(typed);
+  if (partial) return { kind: "strike_incomplete", plan: Number(partial[1]) };
+  const holdDrop = HOLD_DROP.exec(typed);
+  if (holdDrop) return { kind: (holdDrop[1] as string).toLowerCase() as "hold" | "drop", plan: Number(holdDrop[2]) };
+
+  const alias = ARABIC_ALIASES[arabicKey(raw)];
+  if (alias) return alias;
+
   const text = ascii(raw.normalize("NFKC")).trim().replace(/\s+/g, " ");
-  const upper = text.toUpperCase();
-  switch (upper) {
+  switch (text.toUpperCase()) {
     case "STATUS":
       return { kind: "status" };
     case "PULSE":
@@ -41,12 +72,8 @@ export function parseCommand(raw: string): Command {
     case "RESUME":
       return { kind: "resume" };
   }
-  const strike = STRIKE.exec(text);
-  if (strike) return { kind: "strike", plan: Number(strike[1]), hash: (strike[2] as string).toLowerCase(), ...(strike[3] ? { code: strike[3] } : {}) };
-  const partial = STRIKE_PARTIAL.exec(text);
-  if (partial) return { kind: "strike_incomplete", plan: Number(partial[1]) };
-  const withPlan = WITH_PLAN.exec(text);
-  if (withPlan) return { kind: (withPlan[1] as string).toLowerCase() as "simulate" | "hold" | "drop", plan: Number(withPlan[2]) };
+  const simulate = SIMULATE.exec(text);
+  if (simulate) return { kind: "simulate", plan: Number(simulate[1]) };
   if (CAP.test(text)) return { kind: "cap_unsupported" };
   return { kind: "unknown" };
 }

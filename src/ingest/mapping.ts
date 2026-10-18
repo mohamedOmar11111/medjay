@@ -73,15 +73,29 @@ const Path = z
   .min(1)
   .regex(/^[A-Za-z0-9_.-]+$/, "a dotted field path, e.g. utm.campaign");
 
+export const CANONICAL_STAGES = ["lead", "qualified", "booked", "won", "lost"] as const;
+export type CanonicalStage = (typeof CANONICAL_STAGES)[number];
+const CanonicalStageSchema = z.enum(CANONICAL_STAGES);
+
+/**
+ * Any CRM or relay, as long as its export maps onto the canonical contact schema: contact id, created
+ * time, stage (lead | qualified | booked | won | lost), revenue, utm source and campaign, and a phone
+ * number (hashed on the way in) or a phone hash. JSON exports map by field path, flat CSV exports by
+ * column name; `stage_map` translates the CRM's own stage words.
+ */
 const CrmSource = z
   .object({
     id: Id,
     kind: z.literal("crm"),
     file: FileGlob,
-    format: z.literal("json").default("json"),
+    format: z.enum(["json", "csv"]).default("json"),
     currency: Currency,
-    /** Path to the array of contacts inside the file. */
-    records_path: Path,
+    delimiter: z.enum([",", ";", "\t"]).default(","),
+    skip_rows: z.number().int().min(0).max(50).default(0),
+    date_format: z.enum(["iso", "dmy", "mdy"]).default("iso"),
+    stage_map: z.record(z.string().min(1), CanonicalStageSchema).default({}),
+    /** json: path to the array of contacts inside the file. */
+    records_path: Path.optional(),
     fields: z
       .object({
         lead_id: Path,
@@ -91,15 +105,54 @@ const CrmSource = z
         adset: Path.optional(),
         click_id: Path.optional(),
         phone: Path.optional(),
+        phone_hash: Path.optional(),
         channel: Path.optional(),
         first_response_seconds: Path.optional(),
         ghosted_after_price: Path.optional(),
       })
-      .strict(),
-    stages: z.object({ path: Path, name: Path, at: Path }).strict(),
-    deal: z.object({ path: Path, id: Path, value: Path, currency: Path.optional(), won_at: Path }).strict(),
+      .strict()
+      .optional(),
+    stages: z.object({ path: Path, name: Path, at: Path }).strict().optional(),
+    deal: z.object({ path: Path, id: Path, value: Path, currency: Path.optional(), won_at: Path }).strict().optional(),
+    /** csv: one row per contact. */
+    columns: z
+      .object({
+        contact_id: Column,
+        created_at: Column,
+        stage: Column,
+        revenue: Column.optional(),
+        utm_source: Column,
+        utm_campaign: Column,
+        utm_content: Column.optional(),
+        click_id: Column.optional(),
+        phone: Column.optional(),
+        phone_hash: Column.optional(),
+        channel: Column.optional(),
+        first_response_seconds: Column.optional(),
+        ghosted_after_price: Column.optional(),
+        stage_at: Column.optional(),
+        won_at: Column.optional(),
+        currency: Column.optional(),
+      })
+      .strict()
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((c, ctx) => {
+    const need = (ok: boolean, path: string, message: string) => {
+      if (!ok) ctx.addIssue({ code: "custom", path: [path], message });
+    };
+    if (c.format === "json") {
+      need(c.records_path !== undefined, "records_path", "a json crm source needs records_path");
+      need(c.fields !== undefined, "fields", "a json crm source needs fields");
+      need(c.stages !== undefined, "stages", "a json crm source needs stages");
+      need(c.deal !== undefined, "deal", "a json crm source needs deal");
+      need(c.columns === undefined, "columns", "columns is for csv sources");
+    } else {
+      need(c.columns !== undefined, "columns", "a csv crm source needs columns");
+      need(c.records_path === undefined && c.fields === undefined && c.stages === undefined && c.deal === undefined, "format", "records_path, fields, stages and deal are for json sources");
+    }
+  });
 
 export const SourceSchema = z.discriminatedUnion("kind", [AdPlatformSource, WebAnalyticsSource, CrmSource]);
 export type SourceMapping = z.infer<typeof SourceSchema>;
@@ -112,7 +165,7 @@ export const MappingsSchema = z
     version: z.literal(1),
     sources: z.array(SourceSchema).min(1),
     /** Which CRM stages mean what. Deals come from the deal object; these stage names count qualified leads. */
-    funnel: z.object({ qualified: z.array(z.string().min(1)).min(1) }).strict(),
+    funnel: z.object({ qualified: z.array(z.string().min(1)).min(1).default(["qualified", "booked", "won"]) }).strict().prefault({}),
     /** utm_source values that identify each ad platform. */
     attribution: z.object({ source_aliases: z.record(Id, z.array(z.string().min(1)).min(1)) }).strict(),
   })
@@ -140,6 +193,9 @@ export function parseMappings(text: string): Mappings {
   } catch (error) {
     throw new MappingError(`${MAPPINGS_FILE} is not valid YAML: ${error instanceof Error ? (error.message.split("\n")[0] ?? "") : String(error)}`);
   }
+  // `respond_io` was the first CRM source kind; it is now just an alias for the generic `crm`.
+  const sources = (raw as { sources?: unknown } | null)?.sources;
+  if (Array.isArray(sources)) for (const src of sources) if (typeof src === "object" && src !== null && (src as { kind?: unknown }).kind === "respond_io") (src as { kind: string }).kind = "crm";
   const parsed = MappingsSchema.safeParse(raw);
   if (!parsed.success) {
     throw new MappingError(

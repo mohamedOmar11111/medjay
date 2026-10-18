@@ -11,11 +11,13 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalJsonPretty } from "../audit/canonical.js";
-import { toMinorUnits } from "./currency.js";
+import { minorUnitFactor, toMinorUnits } from "./currency.js";
 import type { ActionStatus } from "./repo.js";
-import type { CompiledAction, Plan } from "./types.js";
+import type { CompiledAction, Plan, Term } from "./types.js";
 
 export const EDITOR_HEADERS = ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget"] as const;
+/** Written only when a plan needs them, after the base columns and in this order. */
+export const EDITOR_EXTRA_HEADERS = ["Ad Group Status", "Action"] as const;
 
 export interface ActionOutcome {
   action_id: string;
@@ -32,7 +34,7 @@ export function csvField(value: string): string {
 
 // Removing a negative keyword is a delete, and the Editor CSV delete syntax has not been validated, so it is a manual step.
 const isGoogle = (a: CompiledAction): a is Extract<CompiledAction, { target: { platform: string } }> =>
-  "target" in a && a.type !== "remove_negative_keywords" && a.target.platform === "google_ads" && a.executor === "export";
+  "target" in a && a.target.platform === "google_ads" && a.executor === "export";
 
 function campaignNameProblem(action: Extract<CompiledAction, { target: { name?: string } }>): string | undefined {
   const name = action.target.name;
@@ -61,6 +63,10 @@ export function buildMetaMutations(actions: CompiledAction[]): { requests: MetaR
   for (const action of actions.filter(isMetaMutation)) {
     const path = `/${action.target.id}`;
     if (action.type === "budget_change") {
+      if (minorUnitFactor(action.currency) === null) {
+        problems.set(action.id, `${action.currency} is not in Medjay's currency subunit table, so the budget cannot be written safely; add the currency after checking how the platform counts its minor units`);
+        continue;
+      }
       const to = toMinorUnits(action.to, action.currency);
       const from = toMinorUnits(action.from, action.currency);
       if (to === null || from === null) {
@@ -86,32 +92,59 @@ export function buildEditorCsv(actions: CompiledAction[]): { csv: string | null;
   const problems = new Map<string, string>();
   const written: string[] = [];
   const campaigns = new Map<string, { status?: string; budget?: string }>();
-  const negatives: string[][] = [];
+  const adGroups = new Map<string, { campaign: string; name: string; status: string }>();
+  const adds: { campaign: string; term: Term }[] = [];
+  const removes: { campaign: string; term: Term }[] = [];
 
   for (const action of actions.filter(isGoogle)) {
-    const problem = campaignNameProblem(action);
-    if (problem) {
-      problems.set(action.id, problem);
+    const fail = (message: string) => problems.set(action.id, message);
+    const nameProblem = campaignNameProblem(action);
+    if (nameProblem) {
+      fail(nameProblem);
       continue;
     }
     const name = action.target.name as string;
-    if (action.type === "budget_change") {
-      campaigns.set(name, { ...campaigns.get(name), budget: String(action.to) });
-    } else if (action.type === "status_change") {
-      campaigns.set(name, { ...campaigns.get(name), status: statusWord(action.to) });
-    } else if (action.type === "add_negative_keywords") {
-      for (const term of action.terms) negatives.push([name, "", term.text, matchWord(term.match), "", ""]);
+    const kind = action.target.kind;
+
+    if (action.type === "status_change" && kind === "ad_group") {
+      const parent = action.target.parent_name;
+      if (!parent) {
+        fail("an ad group row needs the campaign name (target.parent_name) because Google Ads Editor identifies an ad group by campaign and name");
+        continue;
+      }
+      if (UNSAFE_NAME.test(parent)) {
+        fail("the campaign name is unsafe for a spreadsheet (starts with = + - @ or has control characters); rename it or edit by hand");
+        continue;
+      }
+      adGroups.set(`${parent}\u0000${name}`, { campaign: parent, name, status: statusWord(action.to) });
+    } else if (action.type === "budget_change" || action.type === "status_change" || action.type === "add_negative_keywords" || action.type === "remove_negative_keywords") {
+      if (kind !== "campaign") {
+        fail(`Medjay writes ${action.type.replaceAll("_", " ")} to the Editor file at campaign level only; this target is a ${kind}`);
+        continue;
+      }
+      if (action.type === "budget_change") campaigns.set(name, { ...campaigns.get(name), budget: String(action.to) });
+      else if (action.type === "status_change") campaigns.set(name, { ...campaigns.get(name), status: statusWord(action.to) });
+      else for (const term of action.terms) (action.type === "add_negative_keywords" ? adds : removes).push({ campaign: name, term });
     } else continue;
     written.push(action.id);
   }
 
   if (written.length === 0) return { csv: null, written, problems };
+  const extras = [...(adGroups.size > 0 ? ["Ad Group Status"] : []), ...(removes.length > 0 ? ["Action"] : [])];
+  const row = (campaign: string, adGroup: string, keyword: string, criterion: string, status: string, budget: string, adGroupStatus: string, action: string): string[] => {
+    const cells = [campaign, adGroup, keyword, criterion, status, budget];
+    if (extras.includes("Ad Group Status")) cells.push(adGroupStatus);
+    if (extras.includes("Action")) cells.push(action);
+    return cells;
+  };
   const rows = [
-    [...EDITOR_HEADERS],
-    ...[...campaigns].map(([name, c]) => [name, "", "", "", c.status ?? "", c.budget ?? ""]),
-    ...negatives,
+    [...EDITOR_HEADERS, ...extras],
+    ...[...campaigns].map(([name, c]) => row(name, "", "", "", c.status ?? "", c.budget ?? "", "", "")),
+    ...[...adGroups.values()].map((g) => row(g.campaign, g.name, "", "", "", "", g.status, "")),
+    ...adds.map((n) => row(n.campaign, "", n.term.text, matchWord(n.term.match), "", "", "", "")),
+    ...removes.map((n) => row(n.campaign, "", n.term.text, matchWord(n.term.match), "", "", "", "Remove")),
   ];
-  const csv = `﻿${rows.map((row) => row.map(csvField).join(",")).join("\r\n")}\r\n`;
+  const csv = `﻿${rows.map((r) => r.map(csvField).join(",")).join("\r\n")}\r\n`;
   return { csv, written, problems };
 }
 
@@ -224,7 +257,8 @@ export async function exportPlan(options: {
   }
 
   // Manual steps for everything that is not in the Editor CSV or a patch.
-  const manual = plan.actions.filter((a) => !isGoogle(a) && !isMetaMutation(a) && a.type !== "code_patch" && !needsConnector(a));
+  // removals are in the CSV AND listed here, so a person can confirm them by hand in case Editor ignores the Action column
+  const manual = plan.actions.filter((a) => (!isGoogle(a) || a.type === "remove_negative_keywords") && !isMetaMutation(a) && a.type !== "code_patch" && !needsConnector(a));
   const changes = [
     `# Changes for plan ${plan.plan_id}`,
     "",

@@ -21,7 +21,7 @@ describe("diagnose on the etlaala-ksa fixture", () => {
     expect(f.summary).toContain("UMRAH-ALL-Broad-Reels");
     expect(f.summary).toMatch(/reports 29 result\(s\)/);
     expect(f.summary).toMatch(/6 lead\(s\), 0 qualified and 0 deals/);
-    expect(f.evidence.map((e) => e.source)).toEqual(["meta_ads:meta-ads-2026-10-10_16.csv", "respond_io:respond-io-contacts-2026-10-17.json"]);
+    expect(f.evidence.map((e) => e.source)).toEqual(["meta_ads:meta-ads-2026-10-10_16.csv", "crm:crm-contacts-2026-10-17.json"]);
     expect(f.evidence.every((e) => e.as_of === "2026-10-16")).toBe(true);
   });
 

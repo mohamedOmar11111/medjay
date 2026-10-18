@@ -255,7 +255,104 @@ export interface CrmFacts {
   deals: DealFact[];
 }
 
+const STAGE_ORDER = ["lead", "qualified", "booked", "won"] as const;
+
+function stageMapper(m: CrmMapping): (raw: string) => { stage: string; mapped: boolean } {
+  const table = new Map(Object.entries(m.stage_map).map(([k, v]) => [k.trim().toLowerCase(), v]));
+  return (raw) => {
+    const hit = table.get(raw.trim().toLowerCase());
+    return hit ? { stage: hit, mapped: true } : { stage: cleanLabel(raw, 60), mapped: false };
+  };
+}
+
 export function normalizeCrm(file: string, text: string, m: CrmMapping, workspaceId: string): Normalized<CrmFacts> {
+  return m.format === "csv" ? normalizeCrmCsv(file, text, m, workspaceId) : normalizeCrmJson(file, text, m, workspaceId);
+}
+
+/** A timestamp from an ISO string, or from a day in the source's date format (midnight UTC). */
+function instantOf(value: string | undefined, m: CrmMapping): string | undefined {
+  if (!value) return undefined;
+  const direct = toInstant(value);
+  if (direct) return direct;
+  const day = toDay(value, m.date_format);
+  return day ? `${day}T00:00:00.000Z` : undefined;
+}
+
+function normalizeCrmCsv(file: string, text: string, m: CrmMapping, workspaceId: string): Normalized<CrmFacts> {
+  const log = new IssueLog(file);
+  const none: Normalized<CrmFacts> = { facts: { leads: [], stages: [], deals: [] }, issues: [], rows: 0, period: null };
+  const table = readTable(text, m.delimiter, m.skip_rows, log);
+  if (!table) return { ...none, issues: log.finish() };
+  const c = m.columns as NonNullable<CrmMapping["columns"]>;
+  const at = locate(table.header, c, ["contact_id", "created_at", "stage", "utm_source", "utm_campaign"], log);
+  if (!at) return { ...none, issues: log.finish() };
+  const map = stageMapper(m);
+
+  const leads: LeadFact[] = [];
+  const stages: StageFact[] = [];
+  const deals: DealFact[] = [];
+  const ids = new Set<string>();
+  for (const { cells, line } of table.rows) {
+    const cell = (field: keyof typeof c): string | undefined => (at[field] === undefined ? undefined : (cells[at[field] as number] ?? "").trim());
+    const id = cell("contact_id");
+    const createdAt = instantOf(cell("created_at"), m);
+    if (!id || !createdAt) {
+      log.add({ severity: "warn", kind: !createdAt && id ? "bad_date" : "bad_record", row: line, column: !id ? c.contact_id : c.created_at, message: `row ${line} has no usable ${!id ? c.contact_id : c.created_at}; skipped` });
+      continue;
+    }
+    if (ids.has(id)) {
+      log.add({ severity: "warn", kind: "duplicate_row", row: line, message: `contact ${cleanLabel(id, 30)} appears twice; the later row is dropped` });
+      continue;
+    }
+    ids.add(id);
+    const leadId = cleanLabel(id, 80);
+    const phone = cell("phone");
+    const givenHash = cell("phone_hash");
+    const responseText = cell("first_response_seconds");
+    const response = responseText ? toNumber(responseText) : undefined;
+    leads.push({
+      lead_id: leadId,
+      created_at: createdAt,
+      utm_source: textCell(cell("utm_source"), log, line, c.utm_source),
+      campaign: textCell(cell("utm_campaign"), log, line, c.utm_campaign),
+      adset: c.utm_content ? textCell(cell("utm_content"), log, line, c.utm_content) : "",
+      click_id: cell("click_id") ? cleanLabel(cell("click_id") as string, 120) : null,
+      phone_hash: givenHash && /^[0-9a-f]{64}$/.test(givenHash) ? givenHash : phone ? (hashPhone(workspaceId, phone) ?? null) : null,
+      channel: cell("channel") || null,
+      first_response_seconds: response !== undefined && response >= 0 ? response : null,
+      ghosted_after_price: cell("ghosted_after_price") ? asBool(cell("ghosted_after_price")) : null,
+    });
+
+    // A flat export carries only the CURRENT stage, so the earlier stages are implied: a contact who
+    // is won was a lead, qualified and booked first. They are stamped with the stage-change time.
+    const rawStage = cell("stage") ?? "";
+    const { stage, mapped } = map(rawStage);
+    const known = mapped || (STAGE_ORDER as readonly string[]).includes(stage) || stage === "lost";
+    if (!known) {
+      log.add({ severity: "warn", kind: "bad_record", row: line, column: c.stage, message: `stage "${cleanLabel(rawStage, 40)}" is not in stage_map; the contact is kept as a lead` });
+    }
+    const current = known ? stage : "lead";
+    const changedAt = instantOf(cell("stage_at"), m) ?? createdAt;
+    const trail: string[] = current === "lost" ? ["lead", "lost"] : STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(current as (typeof STAGE_ORDER)[number]) + 1);
+    trail.forEach((s, i) => stages.push({ lead_id: leadId, stage: s, entered_at: i === 0 ? createdAt : changedAt }));
+
+    if (current === "won") {
+      const revenueText = cell("revenue");
+      const revenue = revenueText === undefined || revenueText === "" ? undefined : toNumber(revenueText);
+      const currency = cell("currency") || m.currency;
+      const wonAt = instantOf(cell("won_at"), m) ?? changedAt;
+      if (revenue === undefined || revenue <= 0) {
+        log.add({ severity: "warn", kind: "bad_record", row: line, column: c.revenue ?? "revenue", message: `contact ${cleanLabel(id, 30)} is won but has no positive revenue; no deal recorded` });
+      } else {
+        if (currency !== m.currency) log.add({ severity: "warn", kind: "currency_mismatch", row: line, message: `deal for ${cleanLabel(id, 30)} is in ${cleanLabel(currency, 8)}, the source is ${m.currency}; it is kept with its own currency and never converted` });
+        deals.push({ deal_id: `d_${leadId}`, lead_id: leadId, value: revenue, currency: cleanLabel(currency, 8), won_at: wonAt });
+      }
+    }
+  }
+  return { facts: { leads, stages, deals }, issues: log.finish(), rows: leads.length, period: periodOf(leads.map((l) => l.created_at.slice(0, 10))) };
+}
+
+function normalizeCrmJson(file: string, text: string, m: CrmMapping, workspaceId: string): Normalized<CrmFacts> {
   const log = new IssueLog(file);
   const none: Normalized<CrmFacts> = { facts: { leads: [], stages: [], deals: [] }, issues: [], rows: 0, period: null };
   let data: unknown;
@@ -265,9 +362,10 @@ export function normalizeCrm(file: string, text: string, m: CrmMapping, workspac
     log.add({ severity: "error", kind: "unreadable", message: `not valid JSON: ${error instanceof Error ? error.message.slice(0, 120) : String(error)}` });
     return { ...none, issues: log.finish() };
   }
-  const records = getPath(data, m.records_path);
+  const recordsPath = m.records_path as string;
+  const records = getPath(data, recordsPath);
   if (!Array.isArray(records)) {
-    log.add({ severity: "error", kind: "missing_column", column: m.records_path, message: `"${m.records_path}" is not an array in the file` });
+    log.add({ severity: "error", kind: "missing_column", column: recordsPath, message: `"${recordsPath}" is not an array in the file` });
     return { ...none, issues: log.finish() };
   }
   if (records.length === 0) {
@@ -275,13 +373,14 @@ export function normalizeCrm(file: string, text: string, m: CrmMapping, workspac
     return { ...none, issues: log.finish() };
   }
 
+  const map = stageMapper(m);
   const leads: LeadFact[] = [];
   const stages: StageFact[] = [];
   const deals: DealFact[] = [];
   const ids = new Set<string>();
   records.forEach((record, i) => {
     const row = i + 1;
-    const f = m.fields;
+    const f = m.fields as NonNullable<CrmMapping["fields"]>;
     const id = asText(getPath(record, f.lead_id));
     const createdAt = toInstant(getPath(record, f.created_at));
     if (!id || !createdAt) {
@@ -295,6 +394,7 @@ export function normalizeCrm(file: string, text: string, m: CrmMapping, workspac
     ids.add(id);
     const text = (path: string | undefined, column: string): string => (path ? textCell(asText(getPath(record, path)), log, row, column) : "");
     const phone = f.phone ? asText(getPath(record, f.phone)) : undefined;
+    const givenHash = f.phone_hash ? asText(getPath(record, f.phone_hash)) : undefined;
     const response = f.first_response_seconds ? toNumber(getPath(record, f.first_response_seconds) as never) : undefined;
     leads.push({
       lead_id: cleanLabel(id, 80),
@@ -303,28 +403,30 @@ export function normalizeCrm(file: string, text: string, m: CrmMapping, workspac
       campaign: text(f.campaign, f.campaign),
       adset: text(f.adset, f.adset ?? "adset"),
       click_id: f.click_id ? asText(getPath(record, f.click_id)) ? cleanLabel(asText(getPath(record, f.click_id)) as string, 120) : null : null,
-      phone_hash: phone ? (hashPhone(workspaceId, phone) ?? null) : null,
+      phone_hash: givenHash && /^[0-9a-f]{64}$/.test(givenHash) ? givenHash : phone ? (hashPhone(workspaceId, phone) ?? null) : null,
       channel: f.channel ? (asText(getPath(record, f.channel)) ?? null) : null,
       first_response_seconds: response !== undefined && response >= 0 ? response : null,
       ghosted_after_price: f.ghosted_after_price ? asBool(getPath(record, f.ghosted_after_price)) : null,
     });
 
-    const events = getPath(record, m.stages.path);
+    const stagesMap = m.stages as NonNullable<CrmMapping["stages"]>;
+    const dealMap = m.deal as NonNullable<CrmMapping["deal"]>;
+    const events = getPath(record, stagesMap.path);
     if (Array.isArray(events)) {
       for (const e of events) {
-        const stage = asText(getPath(e, m.stages.name));
-        const at = toInstant(getPath(e, m.stages.at));
-        if (stage && at) stages.push({ lead_id: cleanLabel(id, 80), stage: cleanLabel(stage, 60), entered_at: at });
+        const stage = asText(getPath(e, stagesMap.name));
+        const at = toInstant(getPath(e, stagesMap.at));
+        if (stage && at) stages.push({ lead_id: cleanLabel(id, 80), stage: map(stage).stage, entered_at: at });
         else log.add({ severity: "warn", kind: "bad_record", row, message: `lead ${cleanLabel(id, 30)} has a stage event without a name or a valid time; skipped` });
       }
     }
 
-    const deal = getPath(record, m.deal.path);
+    const deal = getPath(record, dealMap.path);
     if (deal !== undefined && deal !== null) {
-      const dealId = asText(getPath(deal, m.deal.id));
-      const value = toNumber(getPath(deal, m.deal.value) as never);
-      const wonAt = toInstant(getPath(deal, m.deal.won_at));
-      const currency = (m.deal.currency ? asText(getPath(deal, m.deal.currency)) : undefined) ?? m.currency;
+      const dealId = asText(getPath(deal, dealMap.id));
+      const value = toNumber(getPath(deal, dealMap.value) as never);
+      const wonAt = toInstant(getPath(deal, dealMap.won_at));
+      const currency = (dealMap.currency ? asText(getPath(deal, dealMap.currency)) : undefined) ?? m.currency;
       if (!dealId || value === undefined || value < 0 || !wonAt) {
         log.add({ severity: "warn", kind: "bad_record", row, message: `lead ${cleanLabel(id, 30)} has a deal without a usable id, value or won date; skipped` });
       } else {

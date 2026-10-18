@@ -12,6 +12,8 @@ export const TargetSchema = z
     kind: z.string().regex(slug),
     id: z.string().regex(/^[A-Za-z0-9_.:-]+$/),
     name: z.string().min(1).max(200).optional(),
+    /** The campaign an ad group belongs to (Google Ads Editor identifies an ad group by campaign and name). */
+    parent_name: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type Target = z.infer<typeof TargetSchema>;

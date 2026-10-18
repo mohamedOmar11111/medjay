@@ -91,7 +91,7 @@ describe("mdj bridge simulate-webhook", () => {
   });
 
   it("works in the Respond.io format too, and the ledger stays verifiable", async () => {
-    const r = await hook("--provider", "respond_io_webhook", "--from", OMAR, "--text", "status");
+    const r = await hook("--preset", "respond_io", "--from", OMAR, "--text", "status");
     expect(r.stdout).toMatch(/outcome=ok/);
     expect(r.stdout).toMatch(/1 exported/);
     expect(await verifyLedger(join(dir, ".medjay", "audit-log.jsonl"))).toMatchObject({ ok: true });

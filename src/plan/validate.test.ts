@@ -9,7 +9,7 @@ import { Store } from "../store/db.js";
 import { initWorkspace } from "../workspace/init.js";
 import { approvePlan } from "./approve.js";
 import { compilePlan } from "./compile.js";
-import { currencyExponent, toMinorUnits } from "./currency.js";
+import { minorUnitFactor, toMinorUnits } from "./currency.js";
 import { buildMetaMutations, exportPlan } from "./export.js";
 import { proposePlan, type PlanDeps } from "./propose.js";
 import { PlanRepo } from "./repo.js";
@@ -61,13 +61,25 @@ const full = [
 const csvPath = (plan: { plan_id: string }) => join(dir, "exports", plan.plan_id, "google-ads-editor.csv");
 const metaPath = (plan: { plan_id: string }) => join(dir, "exports", plan.plan_id, "meta-mutations.json");
 
-describe("currency minor units", () => {
-  it("uses ISO exponents and refuses amounts a currency cannot hold", () => {
-    expect([currencyExponent("SAR"), currencyExponent("JPY"), currencyExponent("KWD")]).toEqual([2, 0, 3]);
+describe("currency subunit table", () => {
+  it("is explicit: 100 for two-decimal currencies, 1000 for three-decimal Gulf currencies, 1 for zero-decimal ones", () => {
+    for (const c of ["SAR", "AED", "EGP", "USD", "QAR", "EUR", "GBP"]) expect(minorUnitFactor(c), c).toBe(100);
+    for (const c of ["KWD", "BHD", "OMR", "JOD"]) expect(minorUnitFactor(c), c).toBe(1000);
+    for (const c of ["JPY", "KRW"]) expect(minorUnitFactor(c), c).toBe(1);
+  });
+  it("refuses a currency it does not know, instead of guessing 100", () => {
+    for (const c of ["XYZ", "sar", "SA", "", "IQD", "BTC"]) expect(minorUnitFactor(c), c).toBeNull();
+    expect(toMinorUnits(10, "XYZ")).toBeNull();
+  });
+  it("converts exactly, and refuses amounts a currency cannot hold", () => {
     expect(toMinorUnits(115.5, "SAR")).toBe(11550);
+    expect(toMinorUnits(640, "SAR")).toBe(64000);
+    expect(toMinorUnits(12.345, "KWD")).toBe(12345);
     expect(toMinorUnits(1200, "JPY")).toBe(1200);
+    expect(toMinorUnits(0.29, "USD")).toBe(29);
     expect(toMinorUnits(1.5, "JPY")).toBeNull();
     expect(toMinorUnits(10.555, "SAR")).toBeNull();
+    expect(toMinorUnits(12.3456, "KWD")).toBeNull();
     expect(toMinorUnits(-1, "SAR")).toBeNull();
     expect(toMinorUnits(Number.NaN, "SAR")).toBeNull();
   });
@@ -84,6 +96,16 @@ describe("the Meta mutation export", () => {
     ]);
   });
 
+  it("fails a budget in a currency outside the subunit table, with that reason", () => {
+    const { plan } = compilePlan({ workspace: "ws", origin: { job: "manual", finding_ids: [] }, proposals: [{ type: "budget_change", target: meta("999"), from: 100, to: 110, currency: "TRY" }] as never, now: NOW }, { policy: PolicySchema.parse({}) });
+    const built = buildMetaMutations(plan.actions);
+    expect(built.requests).toEqual([]);
+    expect(built.problems.get("a1")).toMatch(/TRY is not in Medjay's currency subunit table/);
+  });
+  it("uses 1000 minor units for a Kuwaiti dinar budget", () => {
+    const { plan } = compilePlan({ workspace: "ws", origin: { job: "manual", finding_ids: [] }, proposals: [{ type: "budget_change", target: meta("999"), from: 10, to: 12.5, currency: "KWD" }] as never, now: NOW }, { policy: PolicySchema.parse({}) });
+    expect(buildMetaMutations(plan.actions).requests[0]).toMatchObject({ params: { daily_budget: "12500" }, expect_before: { daily_budget: "10000" } });
+  });
   it("fails a budget the currency cannot hold, rather than rounding it", () => {
     const { plan } = compilePlan({ workspace: "ws", origin: { job: "manual", finding_ids: [] }, proposals: [{ type: "budget_change", target: meta("999"), from: 100, to: 100.555, currency: "SAR" }] as never, now: NOW }, { policy: PolicySchema.parse({}) });
     const built = buildMetaMutations(plan.actions);

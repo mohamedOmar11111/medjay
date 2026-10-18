@@ -1,7 +1,9 @@
-// Webhook bodies to InboundMessage. The Cloud API shape follows Meta's documented webhook format.
-// The Respond.io shape is MY READING of its message.received event and has not been checked against
-// a live Respond.io workspace; treat it as a best-effort adapter until it has been.
-import type { InboundMessage, Provider, Via } from "./types.js";
+// Webhook bodies to InboundMessage. cloud_api follows Meta's documented webhook format. Everything
+// else is read through the pointers in the webhook spec, so a new CRM or relay needs configuration,
+// not code. Only the Cloud API and the generic pointer reader exist; the Respond.io preset is a guess
+// at its payload and has not been checked against a live workspace.
+import type { InboundMessage, Via } from "./types.js";
+import type { FieldPointers, WebhookSpec } from "./webhook-spec.js";
 
 export class WebhookParseError extends Error {
   constructor(message: string) {
@@ -15,6 +17,18 @@ const obj = (v: unknown): Obj | undefined => (typeof v === "object" && v !== nul
 const str = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : typeof v === "number" ? String(v) : undefined);
 const E164 = /^\+[1-9]\d{6,14}$/;
 
+/** Own-property dotted lookup (no __proto__ or constructor tricks). */
+export function pointer(value: unknown, path: string | undefined): unknown {
+  if (!path) return undefined;
+  let current = value;
+  for (const part of path.split(".")) {
+    if (Array.isArray(current) && /^\d+$/.test(part)) current = current[Number(part)];
+    else if (typeof current === "object" && current !== null && Object.hasOwn(current, part)) current = (current as Obj)[part];
+    else return undefined;
+  }
+  return current;
+}
+
 function sender(raw: unknown): string {
   const text = str(raw)?.trim() ?? "";
   const withPlus = text.startsWith("+") ? text : `+${text}`;
@@ -25,12 +39,12 @@ function sender(raw: unknown): string {
 function when(raw: unknown): string | null {
   const n = typeof raw === "number" ? raw : Number(str(raw));
   if (!Number.isFinite(n) || n <= 0) return null;
-  const ms = n > 1e11 ? n : n * 1000;
-  return new Date(ms).toISOString();
+  return new Date(n > 1e11 ? n : n * 1000).toISOString();
 }
 
+const truthy = (v: unknown): boolean => v === true || v === 1 || (typeof v === "string" && /^(true|1|yes)$/i.test(v));
 const TRANSCRIPT_FLAGS = ["transcribed", "is_transcript", "from_voice"];
-const flaggedVoice = (m: Obj): boolean => TRANSCRIPT_FLAGS.some((k) => m[k] === true);
+const flaggedVoice = (m: Obj): boolean => TRANSCRIPT_FLAGS.some((k) => truthy(m[k]));
 
 function fromCloud(body: Obj): InboundMessage[] {
   const out: InboundMessage[] = [];
@@ -53,8 +67,7 @@ function fromCloud(body: Obj): InboundMessage[] {
           via = "voice";
           text = str(obj(m.audio)?.transcript);
         } else if (type === "interactive") {
-          const reply = obj(obj(m.interactive)?.button_reply);
-          buttonId = str(reply?.id);
+          buttonId = str(obj(obj(m.interactive)?.button_reply)?.id);
           via = buttonId ? "button" : "other";
         }
         out.push({ id, from: sender(m.from), timestamp: when(m.timestamp), via, ...(text === undefined ? {} : { text }), ...(buttonId === undefined ? {} : { buttonId }) });
@@ -64,29 +77,40 @@ function fromCloud(body: Obj): InboundMessage[] {
   return out;
 }
 
-function fromRespond(body: Obj): InboundMessage[] {
-  if (str(body.event_type) !== "message.received") return [];
-  const outer = obj(body.message);
-  const inner = obj(outer?.message);
-  if (!outer || !inner) return [];
-  const id = str(outer.messageId);
-  if (!id) throw new WebhookParseError("message has no id");
-  const type = str(inner.type) ?? "";
-  const attachment = obj(inner.attachment);
-  let via: Via = "other";
-  let text: string | undefined;
-  if (type === "text") {
-    text = str(inner.text);
-    via = flaggedVoice(inner) ? "voice" : "typed";
-  } else if (type === "attachment" && ["audio", "voice"].includes(str(attachment?.type) ?? "")) {
-    via = "voice";
-    text = str(attachment?.transcript);
+function fromGeneric(spec: WebhookSpec, body: Obj): InboundMessage[] {
+  const f = spec.fields as FieldPointers;
+  if (spec.only_when && str(pointer(body, spec.only_when.path)) !== spec.only_when.equals) return [];
+  const raw = spec.messages_path ? pointer(body, spec.messages_path) : [body];
+  if (!Array.isArray(raw)) return [];
+  const out: InboundMessage[] = [];
+  for (const item of raw) {
+    if (obj(item) === undefined) continue;
+    const id = str(pointer(item, f.message_id));
+    if (!id) throw new WebhookParseError("message has no id");
+    const kind = (str(pointer(item, f.media_type)) ?? str(pointer(item, f.message_type)) ?? "").toLowerCase();
+    const isIn = (list: string[]) => list.some((t) => t.toLowerCase() === kind);
+    const typedText = str(pointer(item, f.text));
+    const buttonId = str(pointer(item, f.button_id));
+    let via: Via = "other";
+    let text: string | undefined;
+    if (isIn(spec.type_map.audio)) {
+      via = "voice";
+      text = str(pointer(item, f.transcript)) ?? typedText;
+    } else if (isIn(spec.type_map.button)) {
+      via = buttonId ? "button" : "other";
+    } else if (isIn(spec.type_map.text)) {
+      via = "typed";
+      text = typedText;
+    }
+    // a transcript is never a typed command, whatever type the relay gave it
+    if (truthy(pointer(item, f.is_transcription))) via = "voice";
+    out.push({ id, from: sender(pointer(item, f.sender_phone)), timestamp: when(pointer(item, f.timestamp)), via, ...(text === undefined ? {} : { text }), ...(buttonId === undefined ? {} : { buttonId }) });
   }
-  return [{ id, from: sender(obj(body.contact)?.phone), timestamp: when(outer.timestamp), via, ...(text === undefined ? {} : { text }) }];
+  return out;
 }
 
-export function parseWebhook(provider: Provider, body: unknown): InboundMessage[] {
+export function parseWebhook(spec: WebhookSpec, body: unknown): InboundMessage[] {
   const root = obj(body);
   if (!root) throw new WebhookParseError("webhook body is not a JSON object");
-  return provider === "whatsapp_cloud_api" ? fromCloud(root) : fromRespond(root);
+  return spec.provider === "cloud_api" ? fromCloud(root) : fromGeneric(spec, root);
 }

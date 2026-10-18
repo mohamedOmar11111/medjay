@@ -1,5 +1,5 @@
 // Generates the synthetic etlaala-ksa dataset: a Saudi travel advertiser's last 7 days across Meta,
-// Google, GA4 and a Respond.io WhatsApp CRM export. Fully deterministic (seeded), so the committed
+// Google, GA4 and a CRM JSON export (WhatsApp leads). Fully deterministic (seeded), so the committed
 // files can be checked against a fresh run. Run: npm run fixtures
 //
 // Deliberate cases (all numbers are invented):
@@ -244,9 +244,9 @@ sources:
       campaign: Session campaign
       sessions: Sessions
       key_events: Key events
-  - id: respond_io
+  - id: crm
     kind: crm
-    file: "respond-io-*.json"
+    file: "crm-*.json"
     currency: SAR
     records_path: contacts
     fields:
@@ -270,7 +270,7 @@ export const UNIT_ECONOMICS_MD = `---
 currency: SAR
 cpc: ${range(2.9, 3.45, 4.2, "etlaala-ksa Meta+Google 7d, 2026-10-10..16")}
 landing_page_cvr: ${range(0.017, 0.022, 0.03, "clicks to CRM leads, same 7 days")}
-lead_to_chat: ${range(0.7, 0.85, 0.92, "Respond.io conversations started / leads")}
+lead_to_chat: ${range(0.7, 0.85, 0.92, "CRM conversations started / leads")}
 chat_to_qualified: ${range(0.5, 0.6, 0.7, "qualified / conversations, sales team estimate")}
 qualified_to_deal: ${range(0.2, 0.32, 0.4, "won / qualified, last 7 days")}
 average_deal_value: ${range(5500, 7000, 8500, "CRM won deals, last 7 days")}
@@ -366,7 +366,7 @@ export const FILES: Record<string, () => string> = {
   "data/imports/meta-ads-2026-10-10_16.csv": metaCsv,
   "data/imports/google-ads-2026-10-10_16.csv": googleCsv,
   "data/imports/ga4-landing-pages-2026-10-10_16.csv": ga4Csv,
-  "data/imports/respond-io-contacts-2026-10-17.json": crmJson,
+  "data/imports/crm-contacts-2026-10-17.json": crmJson,
 };
 
 export async function writeFixture(dir: string): Promise<string[]> {

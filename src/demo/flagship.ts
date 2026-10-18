@@ -31,6 +31,9 @@ import { initWorkspace } from "../workspace/init.js";
 import { loadWorkspace } from "../workspace/load.js";
 import type { KeyStore } from "../models/credentials.js";
 
+/** The default evaluation clock of the demo: the morning after the fixture's last day. */
+export const DEMO_AS_OF = "2026-10-17T07:00:00.000Z";
+
 export interface DemoOptions {
   /** Where the fixture lives (contains ingestion.mappings.yaml, data/, context/, tactics/). */
   fixtureDir: string;
@@ -69,7 +72,9 @@ const money = (n: number) => Math.round(n).toLocaleString("en-US");
 
 export async function runFlagship(options: DemoOptions): Promise<DemoReport> {
   const say = options.say ?? (() => undefined);
-  const now = options.now ?? (() => new Date());
+  // The synthetic data ends on 2026-10-16, so the default clock is the morning after: the demo never
+  // reports "stale data" just because the real calendar has moved on. Pass `now` to change it.
+  const now = options.now ?? (() => new Date(DEMO_AS_OF));
   const dir = options.dir ?? (await mkdtemp(join(tmpdir(), "medjay-demo-")));
   const heading = (n: number, title: string) => say(`\n== ${n}. ${title} ==`);
 

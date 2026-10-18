@@ -6,6 +6,7 @@ import { signButton } from "./buttons.js";
 import { handleWebhook, processJobs } from "./handler.js";
 import { BridgeRepo } from "./queue.js";
 import { buildWebhook } from "./simulator.js";
+import { PRESETS } from "./webhook-spec.js";
 
 let h: BridgeHarness;
 beforeEach(async () => {
@@ -23,13 +24,13 @@ describe("webhook intake", () => {
   it("rejects an unsigned or wrongly signed request before reading it, and logs that", async () => {
     const bad = await h.send("text", OMAR, { text: "STATUS", badSignature: true });
     expect(bad).toMatchObject({ status: 401, replies: [], handled: [] });
-    const none = await handleWebhook(h.deps, { rawBody: buildWebhook({ provider: "whatsapp_cloud_api", kind: "text", from: OMAR, text: "STATUS", secret: SECRET }).rawBody, headers: {} });
+    const none = await handleWebhook(h.deps, { rawBody: buildWebhook({ webhook: PRESETS.cloud_api!, kind: "text", from: OMAR, text: "STATUS", secret: SECRET }).rawBody, headers: {} });
     expect(none.status).toBe(401);
     expect((await events()).filter((e) => e.event === "bridge.rejected" && e.payload.reason === "bad_signature")).toHaveLength(2);
   });
   it("answers 400 for a body that is not a webhook, and 503 when no secret is configured", async () => {
     const raw = "not json";
-    const signed = buildWebhook({ provider: "whatsapp_cloud_api", kind: "text", from: OMAR, text: "x", secret: SECRET });
+    const signed = buildWebhook({ webhook: PRESETS.cloud_api!, kind: "text", from: OMAR, text: "x", secret: SECRET });
     expect((await handleWebhook(h.deps, { rawBody: raw, headers: { "x-hub-signature-256": `sha256=${(await import("node:crypto")).createHmac("sha256", SECRET).update(raw).digest("hex")}` } })).status).toBe(400);
     expect((await handleWebhook({ ...h.deps, secret: "" }, signed)).status).toBe(503);
   });
@@ -203,7 +204,7 @@ describe("STRIKE over WhatsApp", () => {
   it("an expired plan cannot be struck", async () => {
     const { number, short } = await h.proposePause();
     const late = { ...h.deps, plans: { ...h.deps.plans, now: () => new Date("2027-01-01T00:00:00Z") } };
-    const r = await handleWebhook(late, buildWebhook({ provider: "whatsapp_cloud_api", kind: "text", from: OMAR, text: `STRIKE ${number} ${short}`, secret: SECRET }));
+    const r = await handleWebhook(late, buildWebhook({ webhook: PRESETS.cloud_api!, kind: "text", from: OMAR, text: `STRIKE ${number} ${short}`, secret: SECRET }));
     expect(text(r)).toMatch(/did not work/);
     expect(state(number)).not.toBe("exported");
   });
@@ -215,11 +216,11 @@ describe("STRIKE over WhatsApp", () => {
       const { proposePlan } = await import("../plan/propose.js");
       const { row, plan } = await proposePlan(deps.plans, { workspace: "ws", origin: { job: "manual", finding_ids: [] }, proposals: [{ type: "budget_change", target: { platform: "meta", kind: "adset", id: "5", name: "A" }, from: 100, to: 60, currency: "SAR" }] as never });
       const short = plan.plan_hash.slice(0, 8);
-      const first = await handleWebhook(deps, buildWebhook({ provider: "whatsapp_cloud_api", kind: "text", from: OMAR, text: `STRIKE ${row.number} ${short}`, secret: SECRET }));
+      const first = await handleWebhook(deps, buildWebhook({ webhook: PRESETS.cloud_api!, kind: "text", from: OMAR, text: `STRIKE ${row.number} ${short}`, secret: SECRET }));
       expect(text(first)).toMatch(/needs a second confirmation.*mdj approve/s);
       expect(text(first)).not.toContain("123456");
       expect(strict.plans.deps.repo.require(row.number).state).toBe("proposed");
-      const second = await handleWebhook(deps, buildWebhook({ provider: "whatsapp_cloud_api", kind: "text", from: OMAR, text: `STRIKE ${row.number} ${short} 123456`, secret: SECRET }));
+      const second = await handleWebhook(deps, buildWebhook({ webhook: PRESETS.cloud_api!, kind: "text", from: OMAR, text: `STRIKE ${row.number} ${short} 123456`, secret: SECRET }));
       expect(text(second)).toMatch(/exported/);
     } finally {
       await strict.cleanup();
@@ -266,5 +267,43 @@ describe("what the bridge logs", () => {
     await h.send("voice", OMAR, { text: "a spoken secret" });
     const log = await readFile(ledgerPath(h), "utf8");
     for (const leak of ["966551234567", "971500000000", "my secret words", "a spoken secret", `STRIKE ${number}`]) expect(log).not.toContain(leak);
+  });
+});
+
+describe("a generic CRM relay end to end, with a generic webhook transport", () => {
+  it("receives a custom-format signed webhook, runs the command, and the reply POSTs the plan metadata to the relay", async () => {
+    const { resolveWebhook } = await import("./webhook-spec.js");
+    const { GenericWebhookTransport, deliver } = await import("./transport.js");
+    const spec = resolveWebhook({
+      provider: "generic_hmac",
+      signature_header: "X-CRM-Signature",
+      signature_format: "base64",
+      fields: { message_id: "id", sender_phone: "contact.phone", message_type: "kind", text: "body", is_transcription: "asr" },
+      type_map: { text: ["chat"], audio: ["ptt"], button: ["choice"] },
+    });
+    const deps = { ...h.deps, webhook: spec };
+    const { number, short } = await h.proposePause();
+
+    const sent: { url: string; body: Record<string, unknown> }[] = [];
+    const relay = new GenericWebhookTransport({ url: "https://relay.example.com/send", fetch: async (url, init) => (sent.push({ url, body: JSON.parse(init.body) }), { ok: true, status: 200, text: async () => "" }) });
+
+    const req = buildWebhook({ webhook: spec, kind: "text", from: OMAR, text: `STRIKE ${number}`, secret: SECRET });
+    expect(req.headers["x-crm-signature"]).toBeDefined();
+    const result = await handleWebhook(deps, req);
+    expect(result.status).toBe(200);
+    await deliver(result.replies, relay);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.body).toMatchObject({ to: OMAR, plan_id: h.plans.deps.repo.require(number).plan_id, short_hash: short });
+    expect(String(sent[0]!.body.ledger_head)).toMatch(/^[0-9a-f]{12}$/);
+    expect(String(sent[0]!.body.text)).toContain(`STRIKE ${number} ${short}`);
+
+    // the same relay's transcription flag keeps a spoken STRIKE from doing anything
+    const spoken = await handleWebhook(deps, buildWebhook({ webhook: spec, kind: "voice_text", from: OMAR, text: `STRIKE ${number} ${short}`, secret: SECRET }));
+    expect(spoken.handled[0]).toMatchObject({ via: "voice", outcome: "refused:voice" });
+    expect(h.plans.deps.repo.require(number).state).toBe("proposed");
+
+    // and a request signed with the wrong format is refused
+    const wrong = buildWebhook({ webhook: { ...spec, signature_format: "hex" }, kind: "text", from: OMAR, text: "STATUS", secret: SECRET });
+    expect((await handleWebhook(deps, wrong)).status).toBe(401);
   });
 });

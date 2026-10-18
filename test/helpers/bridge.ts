@@ -3,6 +3,7 @@ import { diagnose } from "../../src/analysis/diagnose.js";
 import { loadUnitEconomics } from "../../src/analysis/simulate.js";
 import { handleWebhook, type BridgeDeps, type WebhookResult } from "../../src/bridge/handler.js";
 import { buildWebhook, type SimKind } from "../../src/bridge/simulator.js";
+import { PRESETS } from "../../src/bridge/webhook-spec.js";
 import { proposePlan } from "../../src/plan/propose.js";
 import { simulatePlan } from "../../src/plan/simulate-plan.js";
 import { hashE164, PolicySchema } from "../../src/shield/policy.js";
@@ -42,7 +43,7 @@ export async function setupBridge(options: { limits?: Record<string, unknown>; r
   let tick = 0;
   const deps: BridgeDeps = {
     workspaceId: "ws",
-    provider: "whatsapp_cloud_api",
+    webhook: PRESETS.cloud_api!,
     secret: SECRET,
     policy,
     ledger: plans.deps.ledger,
@@ -64,7 +65,7 @@ export async function setupBridge(options: { limits?: Record<string, unknown>; r
     scout,
     deps,
     send: (kind, from, extra = {}) => {
-      const req = buildWebhook({ provider: "whatsapp_cloud_api", kind, from, secret: SECRET, ...extra });
+      const req = buildWebhook({ webhook: PRESETS.cloud_api!, kind, from, secret: SECRET, ...extra });
       return handleWebhook(deps, req);
     },
     proposePause: async (id = "120200000000001") => {

@@ -2,10 +2,15 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { PolicySchema, hashE164 } from "../shield/policy.js";
 import { authorizeSender, permissionFor } from "./auth.js";
-import { parseCommand } from "./commands.js";
+import { parseCommand, voiceMayRun } from "./commands.js";
 import { parseWebhook, WebhookParseError } from "./parse.js";
 import { signButton, verifyButton } from "./buttons.js";
 import { signBody, verifySignature } from "./signature.js";
+import { buildWebhook } from "./simulator.js";
+import { PRESETS, resolveWebhook, WebhookConfigError, type WebhookSpec } from "./webhook-spec.js";
+
+const CLOUD = PRESETS.cloud_api as WebhookSpec;
+const RESPOND = PRESETS.respond_io as WebhookSpec;
 
 const OMAR = "+966551234567";
 const policy = (approvers: unknown[]) => PolicySchema.parse({ whatsapp: { approvers } });
@@ -18,43 +23,43 @@ const cloud = (message: Record<string, unknown>) => ({
 
 describe("parseWebhook: WhatsApp Cloud API", () => {
   it("reads a text message and adds the + to the number", () => {
-    const [m] = parseWebhook("whatsapp_cloud_api", cloud({ id: "wamid.1", from: "966551234567", timestamp: "1790000000", type: "text", text: { body: "STATUS" } }));
+    const [m] = parseWebhook(CLOUD, cloud({ id: "wamid.1", from: "966551234567", timestamp: "1790000000", type: "text", text: { body: "STATUS" } }));
     expect(m).toEqual({ id: "wamid.1", from: "+966551234567", timestamp: "2026-09-21T14:13:20.000Z", via: "typed", text: "STATUS" });
   });
   it("treats audio as voice, with a transcript only when the provider supplied one", () => {
-    const [plain] = parseWebhook("whatsapp_cloud_api", cloud({ id: "w2", from: "966551234567", type: "audio", audio: { id: "media1" } }));
+    const [plain] = parseWebhook(CLOUD, cloud({ id: "w2", from: "966551234567", type: "audio", audio: { id: "media1" } }));
     expect(plain).toMatchObject({ via: "voice" });
     expect(plain!.text).toBeUndefined();
-    const [withTranscript] = parseWebhook("whatsapp_cloud_api", cloud({ id: "w3", from: "966551234567", type: "audio", audio: { id: "media1", transcript: "strike 4" } }));
+    const [withTranscript] = parseWebhook(CLOUD, cloud({ id: "w3", from: "966551234567", type: "audio", audio: { id: "media1", transcript: "strike 4" } }));
     expect(withTranscript).toMatchObject({ via: "voice", text: "strike 4" });
   });
   it("a text message flagged as a transcription is voice, whatever its type says", () => {
-    const [m] = parseWebhook("whatsapp_cloud_api", cloud({ id: "w4", from: "966551234567", type: "text", text: { body: "STRIKE 4 abcd1234" }, transcribed: true }));
+    const [m] = parseWebhook(CLOUD, cloud({ id: "w4", from: "966551234567", type: "text", text: { body: "STRIKE 4 abcd1234" }, transcribed: true }));
     expect(m!.via).toBe("voice");
   });
   it("reads a button reply as a button with its id", () => {
-    const [m] = parseWebhook("whatsapp_cloud_api", cloud({ id: "w5", from: "966551234567", type: "interactive", interactive: { type: "button_reply", button_reply: { id: "STRIKE:4:abcd1234:sig", title: "STRIKE" } } }));
+    const [m] = parseWebhook(CLOUD, cloud({ id: "w5", from: "966551234567", type: "interactive", interactive: { type: "button_reply", button_reply: { id: "STRIKE:4:abcd1234:sig", title: "STRIKE" } } }));
     expect(m).toMatchObject({ via: "button", buttonId: "STRIKE:4:abcd1234:sig" });
   });
   it("marks everything else (images, locations) as other, and ignores delivery statuses", () => {
-    expect(parseWebhook("whatsapp_cloud_api", cloud({ id: "w6", from: "966551234567", type: "image", image: { id: "x" } }))[0]!.via).toBe("other");
-    expect(parseWebhook("whatsapp_cloud_api", { entry: [{ changes: [{ value: { statuses: [{ id: "s1", status: "read" }] } }] }] })).toEqual([]);
+    expect(parseWebhook(CLOUD, cloud({ id: "w6", from: "966551234567", type: "image", image: { id: "x" } }))[0]!.via).toBe("other");
+    expect(parseWebhook(CLOUD, { entry: [{ changes: [{ value: { statuses: [{ id: "s1", status: "read" }] } }] }] })).toEqual([]);
   });
   it("rejects a body that is not a webhook, and a message without id or sender", () => {
-    expect(() => parseWebhook("whatsapp_cloud_api", "nope")).toThrow(WebhookParseError);
-    expect(() => parseWebhook("whatsapp_cloud_api", cloud({ type: "text", text: { body: "x" } }))).toThrow(/id/);
-    expect(() => parseWebhook("whatsapp_cloud_api", cloud({ id: "z", from: "not a number", type: "text", text: { body: "x" } }))).toThrow(/sender/);
+    expect(() => parseWebhook(CLOUD, "nope")).toThrow(WebhookParseError);
+    expect(() => parseWebhook(CLOUD, cloud({ type: "text", text: { body: "x" } }))).toThrow(/id/);
+    expect(() => parseWebhook(CLOUD, cloud({ id: "z", from: "not a number", type: "text", text: { body: "x" } }))).toThrow(/sender/);
   });
 });
 
 describe("parseWebhook: Respond.io", () => {
   it("reads an inbound text and a voice message", () => {
     const body = (message: Record<string, unknown>) => ({ event_type: "message.received", contact: { phone: "+966551234567" }, message: { messageId: "r1", timestamp: 1790000000000, message: message } });
-    expect(parseWebhook("respond_io_webhook", body({ type: "text", text: "HOLD 4" }))[0]).toMatchObject({ id: "r1", from: "+966551234567", via: "typed", text: "HOLD 4" });
-    expect(parseWebhook("respond_io_webhook", body({ type: "attachment", attachment: { type: "audio", transcript: "scout" } }))[0]).toMatchObject({ via: "voice", text: "scout" });
+    expect(parseWebhook(RESPOND, body({ type: "text", text: "HOLD 4" }))[0]).toMatchObject({ id: "r1", from: "+966551234567", via: "typed", text: "HOLD 4" });
+    expect(parseWebhook(RESPOND, body({ type: "attachment", attachment: { type: "audio", transcript: "scout" } }))[0]).toMatchObject({ via: "voice", text: "scout" });
   });
   it("ignores events that are not inbound messages", () => {
-    expect(parseWebhook("respond_io_webhook", { event_type: "message.sent", contact: { phone: "+1" }, message: {} })).toEqual([]);
+    expect(parseWebhook(RESPOND, { event_type: "message.sent", contact: { phone: "+1" }, message: {} })).toEqual([]);
   });
 });
 
@@ -62,19 +67,71 @@ describe("signatures", () => {
   const secret = "s3cret";
   const body = '{"a":1}';
   const sig = createHmac("sha256", secret).update(body).digest("hex");
+  const sigB64 = createHmac("sha256", secret).update(body).digest("base64");
   it("accepts the Cloud API header form and rejects anything else", () => {
-    expect(verifySignature("whatsapp_cloud_api", body, { "x-hub-signature-256": `sha256=${sig}` }, secret)).toBe(true);
-    expect(verifySignature("whatsapp_cloud_api", body, { "X-Hub-Signature-256": `sha256=${sig}` }, secret)).toBe(true);
-    expect(verifySignature("whatsapp_cloud_api", `${body} `, { "x-hub-signature-256": `sha256=${sig}` }, secret)).toBe(false);
-    expect(verifySignature("whatsapp_cloud_api", body, {}, secret)).toBe(false);
-    expect(verifySignature("whatsapp_cloud_api", body, { "x-hub-signature-256": sig }, secret)).toBe(false);
-    expect(verifySignature("whatsapp_cloud_api", body, { "x-hub-signature-256": `sha256=${sig}` }, "")).toBe(false);
+    expect(verifySignature(CLOUD, body, { "x-hub-signature-256": `sha256=${sig}` }, secret)).toBe(true);
+    expect(verifySignature(CLOUD, body, { "X-Hub-Signature-256": `sha256=${sig}` }, secret)).toBe(true);
+    expect(verifySignature(CLOUD, `${body} `, { "x-hub-signature-256": `sha256=${sig}` }, secret)).toBe(false);
+    expect(verifySignature(CLOUD, body, {}, secret)).toBe(false);
+    expect(verifySignature(CLOUD, body, { "x-hub-signature-256": sig }, secret)).toBe(false);
+    expect(verifySignature(CLOUD, body, { "x-hub-signature-256": `sha256=${sig}` }, "")).toBe(false);
   });
-  it("round-trips through signBody for both providers", () => {
-    for (const provider of ["whatsapp_cloud_api", "respond_io_webhook"] as const) {
-      expect(verifySignature(provider, body, signBody(provider, body, secret), secret)).toBe(true);
-      expect(verifySignature(provider, body, signBody(provider, body, "other"), secret)).toBe(false);
+  it("any header name and any of the three formats can be configured", () => {
+    const hex = { signature_header: "x-crm-signature", signature_format: "hex" as const };
+    const b64 = { signature_header: "X-Relay-Sig", signature_format: "base64" as const };
+    expect(verifySignature(hex, body, { "X-CRM-Signature": sig }, secret)).toBe(true);
+    expect(verifySignature(b64, body, { "x-relay-sig": sigB64 }, secret)).toBe(true);
+    expect(verifySignature(hex, body, { "x-crm-signature": sigB64 }, secret)).toBe(false);
+    expect(verifySignature(b64, body, { "x-relay-sig": sig }, secret)).toBe(false);
+  });
+  it("round-trips through signBody for every format and rejects a different secret", () => {
+    for (const format of ["hex", "base64", "sha256_prefix"] as const) {
+      const spec = { signature_header: "x-any", signature_format: format };
+      expect(verifySignature(spec, body, signBody(spec, body, secret), secret)).toBe(true);
+      expect(verifySignature(spec, body, signBody(spec, body, "other"), secret)).toBe(false);
     }
+  });
+});
+
+describe("a generic relay, configured instead of coded", () => {
+  const spec = resolveWebhook({
+    provider: "generic_hmac",
+    signature_header: "X-CRM-Signature",
+    signature_format: "base64",
+    messages_path: "data.messages",
+    fields: { message_id: "id", sender_phone: "wa.number", message_type: "kind", text: "body", is_transcription: "asr", button_id: "choice", timestamp: "ts" },
+    type_map: { text: ["chat"], audio: ["ptt"], button: ["choice"] },
+  });
+  const payload = (m: Record<string, unknown>) => ({ data: { messages: [m] } });
+  it("reads typed text, voice, a transcription flag and a button through the pointers", () => {
+    expect(parseWebhook(spec, payload({ id: "g1", wa: { number: "966551234567" }, kind: "chat", body: "STATUS", ts: 1790000000 }))[0]).toMatchObject({ id: "g1", from: "+966551234567", via: "typed", text: "STATUS" });
+    expect(parseWebhook(spec, payload({ id: "g2", wa: { number: "966551234567" }, kind: "ptt" }))[0]!.via).toBe("voice");
+    expect(parseWebhook(spec, payload({ id: "g3", wa: { number: "966551234567" }, kind: "chat", body: "STRIKE 4 abcd1234", asr: true }))[0]!.via).toBe("voice");
+    expect(parseWebhook(spec, payload({ id: "g4", wa: { number: "966551234567" }, kind: "choice", choice: "STRIKE:4:abcd1234:sig" }))[0]).toMatchObject({ via: "button", buttonId: "STRIKE:4:abcd1234:sig" });
+    expect(parseWebhook(spec, payload({ id: "g5", wa: { number: "966551234567" }, kind: "sticker" }))[0]!.via).toBe("other");
+  });
+  it("a body that lacks the messages array yields nothing, and a message without an id is an error", () => {
+    expect(parseWebhook(spec, { data: {} })).toEqual([]);
+    expect(() => parseWebhook(spec, payload({ wa: { number: "966551234567" }, kind: "chat", body: "x" }))).toThrow(WebhookParseError);
+  });
+  it("does not follow __proto__ pointers", () => {
+    const evil = resolveWebhook({ provider: "generic_hmac", signature_header: "x-s", signature_format: "hex", fields: { message_id: "__proto__.id", sender_phone: "from", message_type: "type" } });
+    expect(() => parseWebhook(evil, { from: "966551234567", type: "text" })).toThrow(WebhookParseError);
+  });
+  it("round-trips through the simulator and the signature check", () => {
+    const req = buildWebhook({ webhook: spec, kind: "text", from: "+966551234567", text: "STATUS", secret: "k" });
+    expect(verifySignature(spec, req.rawBody, req.headers, "k")).toBe(true);
+    const parsed = parseWebhook(spec, JSON.parse(req.rawBody));
+    expect(parsed[0]).toMatchObject({ from: "+966551234567", via: "typed", text: "STATUS" });
+    const voice = parseWebhook(spec, JSON.parse(buildWebhook({ webhook: spec, kind: "voice_text", from: "+966551234567", text: "STRIKE 1 abcd1234", secret: "k" }).rawBody));
+    expect(voice[0]!.via).toBe("voice");
+  });
+  it("needs its signature header, format and the three core pointers, or a preset", () => {
+    expect(() => resolveWebhook({ provider: "generic_hmac" })).toThrow(WebhookConfigError);
+    expect(() => resolveWebhook({ provider: "generic_hmac", signature_header: "x", signature_format: "hex" })).toThrow(/fields.message_id/);
+    expect(() => resolveWebhook({ provider: "generic_hmac", preset: "nope" })).toThrow(/unknown webhook preset/);
+    expect(resolveWebhook({ provider: "generic_hmac", preset: "respond_io" }).label).toBe("respond_io");
+    expect(resolveWebhook({ provider: "generic_hmac", preset: "respond_io", signature_header: "X-Other" }).signature_header).toBe("x-other");
   });
 });
 
@@ -98,6 +155,30 @@ describe("parseCommand", () => {
   });
   it("reads Arabic-Indic digits in plan numbers", () => {
     expect(parseCommand("simulate ٤")).toEqual({ kind: "simulate", plan: 4 });
+  });
+  it("reads the Arabic read and status aliases, with or without diacritics and hamza forms", () => {
+    expect(parseCommand("حالة")).toEqual({ kind: "status" });
+    expect(parseCommand("نبض")).toEqual({ kind: "pulse" });
+    expect(parseCommand("فحص")).toEqual({ kind: "scout" });
+    expect(parseCommand("تشخيص")).toEqual({ kind: "diagnose" });
+    expect(parseCommand("إيقاف الكل")).toEqual({ kind: "pause_all" });
+    expect(parseCommand("ايقاف  الكل")).toEqual({ kind: "pause_all" });
+    expect(parseCommand("حَالَة")).toEqual({ kind: "status" });
+    expect(parseCommand("  تشخيص ")).toEqual({ kind: "diagnose" });
+  });
+  it("the Arabic aliases carry the same permissions as their English commands", () => {
+    expect(permissionFor(parseCommand("حالة"))).toBe("query");
+    expect(permissionFor(parseCommand("إيقاف الكل"))).toBe("cap");
+    expect(voiceMayRun(parseCommand("حالة"))).toBe(true);
+    expect(voiceMayRun(parseCommand("إيقاف الكل"))).toBe(false);
+  });
+  it("STRIKE, HOLD and DROP are strictly ASCII-typed: look-alike letters and Arabic-Indic digits are not commands", () => {
+    expect(parseCommand("ＳＴＲＩＫＥ 4 9162c895").kind).toBe("unknown");
+    expect(parseCommand("STRIKE ٤ 9162c895").kind).toBe("unknown");
+    expect(parseCommand("STRIKE 4 ٩١٦٢c895").kind).toBe("unknown");
+    expect(parseCommand("HOLD ٤").kind).toBe("unknown");
+    expect(parseCommand("ضربة 4 9162c895").kind).toBe("unknown");
+    expect(parseCommand("STRIKE 4 9162c895")).toEqual({ kind: "strike", plan: 4, hash: "9162c895" });
   });
   it("hold, drop, pause and resume", () => {
     expect(parseCommand("HOLD 4")).toEqual({ kind: "hold", plan: 4 });

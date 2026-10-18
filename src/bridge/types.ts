@@ -2,9 +2,6 @@
 // a transcript is a machine's guess at speech, so it is never trusted to approve anything.
 export type Via = "typed" | "button" | "voice" | "other";
 
-export type Provider = "whatsapp_cloud_api" | "respond_io_webhook";
-export const PROVIDERS: readonly Provider[] = ["whatsapp_cloud_api", "respond_io_webhook"];
-
 export interface InboundMessage {
   /** The provider's message id; used once, for replay protection. */
   id: string;
@@ -23,4 +20,6 @@ export interface OutboundMessage {
   text: string;
   /** Interactive buttons; ids are signed, see buttons.ts. */
   buttons?: { id: string; title: string }[];
+  /** For relays that route on the plan: filled by the bridge. */
+  meta?: { plan_id?: string; short_hash?: string; ledger_head?: string };
 }

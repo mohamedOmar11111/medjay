@@ -46,9 +46,9 @@ sources:
       campaign: Session campaign
       sessions: Sessions
       key_events: Key events
-  - id: respond_io
+  - id: crm
     kind: crm
-    file: "respond-io-*.json"
+    file: "crm-*.json"
     currency: SAR
     records_path: contacts
     fields:

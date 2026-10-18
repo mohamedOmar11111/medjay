@@ -84,6 +84,7 @@ export function approvalPrompt(input: ApprovalPromptInput): OutboundMessage {
   return {
     to: input.to,
     text: lines.join("\n"),
+    meta: { plan_id: plan.plan_id, short_hash: short },
     ...(key
       ? {
           buttons: [

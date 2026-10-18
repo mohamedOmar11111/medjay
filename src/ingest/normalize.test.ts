@@ -95,6 +95,10 @@ const crm: CrmMapping = {
   file: "r.json",
   format: "json",
   currency: "SAR",
+  delimiter: ",",
+  skip_rows: 0,
+  date_format: "iso",
+  stage_map: {},
   records_path: "contacts",
   fields: { lead_id: "id", created_at: "created_at", utm_source: "utm.source", campaign: "utm.campaign", adset: "utm.content", click_id: "click_id", phone: "phone", channel: "channel", first_response_seconds: "first_response_seconds", ghosted_after_price: "ghosted_after_price" },
   stages: { path: "stages", name: "stage", at: "at" },
@@ -140,7 +144,7 @@ describe("normalizeCrm", () => {
   });
 
   it("does not follow __proto__ or constructor paths", () => {
-    const hostile = { ...crm, fields: { ...crm.fields, campaign: "__proto__.polluted" } };
+    const hostile = { ...crm, fields: { ...crm.fields!, campaign: "__proto__.polluted" } };
     const r = normalizeCrm("r.json", JSON.stringify({ contacts: [contact()] }), hostile, "ws");
     expect(r.facts.leads[0]!.campaign).toBe("");
   });

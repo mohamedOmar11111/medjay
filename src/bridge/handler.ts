@@ -26,7 +26,8 @@ import { approvalPrompt, HELP_TEXT, pulseCard, shortHash, witness } from "./outb
 import { parseWebhook, WebhookParseError } from "./parse.js";
 import { BridgeRepo, type Job, type JobKind } from "./queue.js";
 import { verifySignature } from "./signature.js";
-import type { InboundMessage, OutboundMessage, Provider, Via } from "./types.js";
+import type { InboundMessage, OutboundMessage, Via } from "./types.js";
+import type { WebhookSpec } from "./webhook-spec.js";
 
 export interface ReadServices {
   report(): Promise<{ snapshot: Snapshot; diagnosis: Diagnosis }>;
@@ -35,7 +36,7 @@ export interface ReadServices {
 
 export interface BridgeDeps {
   workspaceId: string;
-  provider: Provider;
+  webhook: WebhookSpec;
   /** Webhook secret; also keys the signed buttons. */
   secret: string;
   policy: Policy;
@@ -67,13 +68,13 @@ const short = (hash: string) => hash.slice(0, 16);
 
 export async function handleWebhook(deps: BridgeDeps, req: { rawBody: string; headers: Record<string, string | undefined> }): Promise<WebhookResult> {
   if (deps.secret === "") return { status: 503, replies: [], handled: [] };
-  if (!verifySignature(deps.provider, req.rawBody, req.headers, deps.secret)) {
-    await deps.ledger.append({ actor: "bridge", event: "bridge.rejected", payload: { reason: "bad_signature", provider: deps.provider } });
+  if (!verifySignature(deps.webhook, req.rawBody, req.headers, deps.secret)) {
+    await deps.ledger.append({ actor: "bridge", event: "bridge.rejected", payload: { reason: "bad_signature", provider: deps.webhook.label } });
     return { status: 401, replies: [], handled: [] };
   }
   let messages: InboundMessage[];
   try {
-    messages = parseWebhook(deps.provider, JSON.parse(req.rawBody));
+    messages = parseWebhook(deps.webhook, JSON.parse(req.rawBody));
   } catch (error) {
     if (error instanceof WebhookParseError || error instanceof SyntaxError) return { status: 400, replies: [], handled: [] };
     throw error;
@@ -84,6 +85,10 @@ export async function handleWebhook(deps: BridgeDeps, req: { rawBody: string; he
     const result = await handleMessage(deps, message);
     replies.push(...result.replies);
     if (result.handled) handled.push(result.handled);
+  }
+  if (replies.length > 0) {
+    const head = (await deps.ledger.head()).hash.slice(0, 12);
+    for (const r of replies) r.meta = { ...r.meta, ledger_head: head };
   }
   return { status: 200, replies, handled };
 }
@@ -96,7 +101,7 @@ async function handleMessage(deps: BridgeDeps, message: InboundMessage): Promise
   const auth = await authorizeSender(deps.policy, message.from, deps.workspaceId, deps.resolver);
   // the id is remembered before anything else, so a replay is a no-op whoever sent it
   const senderKey = auth.ok ? short(auth.hash) : "unknown";
-  if (!repo.remember({ id: message.id, provider: deps.provider, sender_hash: senderKey, via: message.via }, now)) return { replies: [] };
+  if (!repo.remember({ id: message.id, provider: deps.webhook.label, sender_hash: senderKey, via: message.via }, now)) return { replies: [] };
 
   const done = (command: string, outcome: string, replies: OutboundMessage[]): { replies: OutboundMessage[]; handled: Handled } => {
     repo.settle(message.id, command, outcome);

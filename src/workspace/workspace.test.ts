@@ -321,6 +321,63 @@ describe("loadWorkspace", () => {
     await expect(loadWorkspace(dir)).resolves.toBeDefined();
   });
 
+  it("accepts a generic_hmac relay with its own signature header, field pointers and a transport, and keeps the old provider names loading", async () => {
+    const dir = await make();
+    const bridge = (over: Record<string, unknown>) => ({
+      whatsapp: {
+        enabled: true,
+        channel_id: "1",
+        webhook_url: "https://hooks.example.com/wa",
+        credentials: {
+          api_token: { keychain_ref: "wa_api_token", env_fallback: "MEDJAY_WA_API_TOKEN" },
+          webhook_secret: { keychain_ref: "wa_webhook_secret", env_fallback: "MEDJAY_WA_WEBHOOK_SECRET" },
+        },
+        templates: { pulse: "p", approval_card: "a", alert: "l" },
+        ...over,
+      },
+    });
+    await edit(dir, (c) => {
+      c.command_bridge = bridge({
+        provider: "generic_hmac",
+        webhook: { signature_header: "X-CRM-Signature", signature_format: "base64", fields: { message_id: "id", sender_phone: "contact.phone", message_type: "kind", text: "body" }, type_map: { audio: ["ptt"] } },
+        transport: { type: "generic_webhook", url: "https://relay.example.com/send" },
+      });
+    });
+    const { config } = await loadWorkspace(dir);
+    expect(config.command_bridge.whatsapp.webhook?.signature_format).toBe("base64");
+    expect(config.command_bridge.whatsapp.transport?.type).toBe("generic_webhook");
+
+    await edit(dir, (c) => {
+      c.command_bridge = bridge({ provider: "respond_io_webhook" });
+    });
+    await expect(loadWorkspace(dir)).resolves.toBeDefined();
+  });
+
+  it("rejects a generic_hmac bridge with no webhook block, a bad signature format, and transports missing what they need", async () => {
+    const dir = await make();
+    const base = {
+      enabled: true,
+      channel_id: "1",
+      webhook_url: "https://hooks.example.com/wa",
+      credentials: {
+        api_token: { keychain_ref: "wa_api_token", env_fallback: "MEDJAY_WA_API_TOKEN" },
+        webhook_secret: { keychain_ref: "wa_webhook_secret", env_fallback: "MEDJAY_WA_WEBHOOK_SECRET" },
+      },
+      templates: { pulse: "p", approval_card: "a", alert: "l" },
+    };
+    const paths = async (over: Record<string, unknown>) => {
+      await edit(dir, (c) => {
+        c.command_bridge = { whatsapp: { ...base, ...over } };
+      });
+      return (await issuesOf(dir)).map((i) => i.path);
+    };
+    expect(await paths({ provider: "generic_hmac" })).toContain("command_bridge.whatsapp.webhook");
+    expect((await paths({ provider: "generic_hmac", webhook: { signature_format: "md5" } })).join(",")).toMatch(/signature_format/);
+    expect((await paths({ provider: "cloud_api", transport: { type: "generic_webhook" } })).join(",")).toMatch(/url/);
+    expect((await paths({ provider: "cloud_api", transport: { type: "cloud_api" } })).join(",")).toMatch(/phone_number_id/);
+    expect((await paths({ provider: "cloud_api", transport: { type: "generic_webhook", url: "http://insecure.example.com" } })).join(",")).toMatch(/url/);
+  });
+
   it("requires https webhooks, MEDJAY_* env references and an acknowledgement for the unsupported bridge", async () => {
     const dir = await make();
     const base = {

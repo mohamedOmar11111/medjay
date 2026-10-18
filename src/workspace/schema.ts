@@ -72,12 +72,68 @@ const McpServer = z
     }
   });
 
+const DottedPath = z.string().min(1).max(120).regex(/^[A-Za-z0-9_.-]+$/, "a dotted field path, e.g. message.contact.phone");
+
+/**
+ * How inbound webhooks look. provider cloud_api is Meta's WhatsApp Cloud API. generic_hmac is any CRM
+ * or relay that signs the raw body with HMAC-SHA256: name the signature header and format and point at
+ * the fields in its JSON (or pick a preset). The older provider names whatsapp_cloud_api and
+ * respond_io_webhook still load and mean cloud_api and generic_hmac with the respond_io preset.
+ */
+const Webhook = z
+  .object({
+    preset: z.string().min(1).max(40).optional(),
+    signature_header: z.string().regex(/^[A-Za-z0-9-]+$/, "a header name such as X-Hub-Signature-256").optional(),
+    signature_format: z.enum(["hex", "base64", "sha256_prefix"]).optional(),
+    messages_path: DottedPath.optional(),
+    only_when: z.object({ path: DottedPath, equals: z.string().min(1).max(80) }).strict().optional(),
+    fields: z
+      .object({
+        message_id: DottedPath,
+        sender_phone: DottedPath,
+        message_type: DottedPath,
+        text: DottedPath,
+        media_type: DottedPath,
+        transcript: DottedPath,
+        is_transcription: DottedPath,
+        button_id: DottedPath,
+        timestamp: DottedPath,
+      })
+      .partial()
+      .strict()
+      .optional(),
+    type_map: z
+      .object({ text: z.array(z.string().min(1)).min(1), audio: z.array(z.string().min(1)).min(1), button: z.array(z.string().min(1)).min(1) })
+      .partial()
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+/** Where outbound replies go. console only prints them (local use and tests). */
+const Transport = z
+  .object({
+    type: z.enum(["console", "cloud_api", "generic_webhook"]).default("console"),
+    /** generic_webhook: where to POST { to, text, plan_id, short_hash, ledger_head }. */
+    url: z.url({ protocol: /^https$/ }).optional(),
+    /** cloud_api: the WhatsApp Business phone number id that sends the messages. */
+    phone_number_id: z.string().regex(/^\d{5,20}$/, "digits only").optional(),
+    api_version: z.string().regex(/^v\d+\.\d+$/, "for example v21.0").default("v21.0"),
+  })
+  .strict()
+  .superRefine((t, ctx) => {
+    if (t.type === "generic_webhook" && t.url === undefined) ctx.addIssue({ code: "custom", path: ["url"], message: "required for a generic_webhook transport" });
+    if (t.type === "cloud_api" && t.phone_number_id === undefined) ctx.addIssue({ code: "custom", path: ["phone_number_id"], message: "required for a cloud_api transport" });
+  });
+
 const WhatsApp = z
   .object({
     enabled: z.boolean().default(false),
-    provider: z.enum(["respond_io_webhook", "whatsapp_cloud_api", "local_baileys"]).default("whatsapp_cloud_api"),
+    provider: z.enum(["cloud_api", "generic_hmac", "local_baileys", "whatsapp_cloud_api", "respond_io_webhook"]).default("cloud_api"),
     channel_id: z.string().min(1).optional(),
     webhook_url: z.url({ protocol: /^https$/ }).optional(),
+    webhook: Webhook.optional(),
+    transport: Transport.optional(),
     credentials: z.object({ api_token: CredRef, webhook_secret: CredRef }).strict().optional(),
     templates: z
       .object({ pulse: z.string().min(1), approval_card: z.string().min(1), alert: z.string().min(1) })
@@ -90,6 +146,9 @@ const WhatsApp = z
     if (!wa.enabled) return;
     for (const field of ["channel_id", "webhook_url", "credentials", "templates"] as const) {
       if (wa[field] === undefined) ctx.addIssue({ code: "custom", path: [field], message: `required when the bridge is enabled` });
+    }
+    if (wa.provider === "generic_hmac" && wa.webhook === undefined) {
+      ctx.addIssue({ code: "custom", path: ["webhook"], message: "a generic_hmac bridge needs a webhook block (a preset, or the signature header, format and field pointers)" });
     }
     if (wa.provider === "local_baileys" && wa.unsupported_acknowledged !== true) {
       ctx.addIssue({
