@@ -11,6 +11,8 @@ const FETCH_TIMEOUT_MS = 5000;
 
 export interface CatalogModel {
   id: string;
+  /** USD per million tokens. */
+  cost?: { input?: number; output?: number; cache_read?: number };
   temperature?: boolean;
   tool_call?: boolean;
   reasoning?: boolean;
@@ -100,6 +102,27 @@ export class ModelCatalog {
       // a cache that cannot be written only costs a refetch next time
     }
   }
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+}
+
+/**
+ * Estimated cost of one model call in USD, or null when the price is unknown. Local Ollama is free.
+ * Vendor models are priced from the models.dev catalog (per million tokens, cached input at the
+ * cache-read rate). Compatible endpoints and unpriced or unknown models are null, never guessed.
+ */
+export function estimateCostUsd(target: ResolvedTarget, catalog: ModelCatalog, usage: TokenUsage): number | null {
+  if (target.provider === "ollama") return 0;
+  const cost = catalog.find(target.provider, target.model)?.cost;
+  if (!cost || cost.input === undefined || cost.output === undefined) return null;
+  const cached = Math.min(usage.cachedTokens, usage.inputTokens);
+  const cacheRate = cost.cache_read ?? cost.input;
+  return ((usage.inputTokens - cached) * cost.input + cached * cacheRate + usage.outputTokens * cost.output) / 1_000_000;
 }
 
 /**

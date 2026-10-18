@@ -17,7 +17,7 @@ const ALLOWED: Record<string, string[]> = {
   store: ["shared"],
   style: ["shared"],
   plan: ["shield", "store", "audit", "models", "shared"],
-  runtime: ["shield", "audit", "style", "plan", "workspace", "store", "shared"],
+  runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
   cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
@@ -96,6 +96,17 @@ describe("architecture", () => {
     for (const name of ["registry.ts", "scope.ts", "env.ts"]) {
       const text = await readFile(join(SRC, "runtime", name), "utf8");
       if (/child_process|plan\/(?:strike|export|approve)/.test(text)) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
+  it("keeps the agent loop unable to spawn processes or execute and approve plans", async () => {
+    const offenders: string[] = [];
+    const FORBIDDEN = /(?:^(?:node:)?child_process$)|\/plan\/(?:strike|export|approve|signing)\.js$/;
+    const IMPORT_ANY = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+    for (const file of await sourceFiles(join(SRC, "runtime", "loop"))) {
+      for (const match of (await readFile(file, "utf8")).matchAll(IMPORT_ANY)) {
+        if (FORBIDDEN.test(match[1]!)) offenders.push(`${relative(SRC, file)} imports ${match[1]}`);
+      }
     }
     expect(offenders).toEqual([]);
   });

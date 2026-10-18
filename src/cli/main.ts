@@ -16,6 +16,7 @@ import { formatDoctor } from "./format.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerStyleCommands } from "./style-commands.js";
+import { registerRunCommands } from "./run-commands.js";
 import { registerToolCommands } from "./tool-commands.js";
 import { guarded, LEDGER_FILE, STORE_FILE, workspaceDirOrThrow } from "./util.js";
 import { readSecret } from "./secret-input.js";
@@ -233,6 +234,7 @@ export function buildProgram(): Command {
   registerShieldCommands(program);
   registerStyleCommands(program);
   registerToolCommands(program);
+  registerRunCommands(program);
 
   return program;
 }

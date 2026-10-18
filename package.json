@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "dev": "tsx src/cli.ts",
     "spike:m0": "tsx spikes/m0-ai-sdk/spike.ts"
   },

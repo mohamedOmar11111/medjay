@@ -63,6 +63,11 @@ export interface RunContext {
   step: number;
   scope: RunScope;
   signal?: AbortSignal;
+  /**
+   * A human approved this one call: an `ask` becomes allowed (logged as approved_once). It never
+   * overrides a deny or a forbidden action, and it does not carry over to any other call.
+   */
+  approveAsk?: boolean;
 }
 
 export type ToolOutcome =
@@ -136,7 +141,10 @@ export class ToolRegistry {
     const inputHash = hashInput(input);
 
     const resources = [...(tool.resources?.(input) ?? []), `tool:${tool.name}`, ...(run.scope.client ? [`client:${run.scope.client}`] : [])];
-    const decision = this.decide(tool, resources);
+    const policyDecision = this.decide(tool, resources);
+    const approvedOnce = policyDecision === "ask" && run.approveAsk === true;
+    const decision = approvedOnce ? "allow" : policyDecision;
+    const allowLabel = approvedOnce ? "approved_once" : "allow";
     if (decision !== "allow") {
       const kind: ToolErrorKind = decision === "deny" ? "denied" : "approval_required";
       await this.log(call.name, tool.class, run, { decision, ok: false, error_kind: kind, input_sha256: inputHash, resources, duration_ms: duration() }, decision === "deny" ? "tool.denied" : "tool.invoked");
@@ -151,7 +159,7 @@ export class ToolRegistry {
       for (const rel of tool.paths?.(input) ?? []) run.scope.assertAllowed(rel);
     } catch (error) {
       const message = error instanceof ScopeError ? error.message : "path check failed";
-      await log({ decision: "allow", ok: false, error_kind: "scope", input_sha256: inputHash, resources, duration_ms: duration() });
+      await log({ decision: allowLabel, ok: false, error_kind: "scope", input_sha256: inputHash, resources, duration_ms: duration() });
       return { ok: false, error: { kind: "scope", message }, durationMs: duration() };
     }
 
@@ -179,13 +187,13 @@ export class ToolRegistry {
       const max = tool.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
       if (bytes > max) throw new Error(`output is ${bytes} bytes, over the ${max} byte limit; return less or paginate`);
       outcome = { ok: true, output, trust: tool.trustOf ? tool.trustOf(input, output, ctx) : "untrusted", durationMs: duration() };
-      await log({ decision: "allow", ok: true, input_sha256: inputHash, resources, output_bytes: bytes, trust: outcome.trust, duration_ms: duration() });
+      await log({ decision: allowLabel, ok: true, input_sha256: inputHash, resources, output_bytes: bytes, trust: outcome.trust, duration_ms: duration() });
     } catch (error) {
       const timedOut = signal.aborted;
       const kind: ToolErrorKind = timedOut ? "timeout" : error instanceof ScopeError ? "scope" : "failed";
       const message = timedOut ? `tool ${tool.name} stopped after ${timeoutMs} ms or by the run` : short(error instanceof Error ? error.message : String(error));
       outcome = { ok: false, error: { kind, message }, durationMs: duration() };
-      await log({ decision: "allow", ok: false, error_kind: kind, input_sha256: inputHash, resources, duration_ms: duration() });
+      await log({ decision: allowLabel, ok: false, error_kind: kind, input_sha256: inputHash, resources, duration_ms: duration() });
     }
     return outcome;
   }

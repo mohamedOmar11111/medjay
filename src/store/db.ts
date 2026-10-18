@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "../constants.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -66,6 +66,45 @@ const MIGRATIONS: readonly string[] = [
    );`,
   // 3: which surface a model call served (internal narration, WhatsApp reply, client copy, diagnosis)
   `ALTER TABLE usage_events ADD COLUMN surface TEXT NOT NULL DEFAULT 'other';`,
+  // 4: agent runs and their checkpointed steps (resume without re-running or re-billing finished steps)
+  `CREATE TABLE runs (
+     run_id TEXT PRIMARY KEY,
+     workspace_id TEXT NOT NULL,
+     surface TEXT NOT NULL,
+     slot TEXT NOT NULL,
+     task TEXT NOT NULL,
+     language TEXT NOT NULL,
+     status TEXT NOT NULL,
+     stop_reason TEXT,
+     policy_hash TEXT NOT NULL,
+     limits_json TEXT NOT NULL,
+     steps_done INTEGER NOT NULL DEFAULT 0,
+     input_tokens INTEGER NOT NULL DEFAULT 0,
+     output_tokens INTEGER NOT NULL DEFAULT 0,
+     cost_usd REAL NOT NULL DEFAULT 0,
+     cost_known INTEGER NOT NULL DEFAULT 1,
+     nudged INTEGER NOT NULL DEFAULT 0,
+     final_text TEXT,
+     pending_json TEXT,
+     error_json TEXT,
+     lease_until TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE INDEX runs_created ON runs (created_at);
+   CREATE TABLE run_steps (
+     run_id TEXT NOT NULL REFERENCES runs (run_id),
+     step_index INTEGER NOT NULL,
+     phase TEXT NOT NULL,
+     assistant_text TEXT NOT NULL,
+     tool_calls_json TEXT NOT NULL,
+     tool_results_json TEXT NOT NULL,
+     usage_json TEXT NOT NULL,
+     model_json TEXT NOT NULL,
+     nudge INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (run_id, step_index)
+   );`,
 ];
 
 export interface UsageRecord {

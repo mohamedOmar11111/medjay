@@ -169,6 +169,26 @@ describe("invoke: permissions from shield.policy.yaml", () => {
     expect(await registry.invoke({ name: "propose_thing", input: { id: "locked" } }, run)).toMatchObject({ ok: false, error: { kind: "denied" } });
   });
 
+  it("lets a human approve one ask for one call, logged as approved_once, without widening anything", async () => {
+    const { registry, scope } = await setup(policyWith([]));
+    registry.register(echo);
+    const base = { runId: "run_1", step: 1, scope };
+    expect(await registry.invoke({ name: "echo_text", input: { text: "x" } }, base)).toMatchObject({ ok: false, error: { kind: "approval_required" } });
+    expect((await registry.invoke({ name: "echo_text", input: { text: "x" } }, { ...base, approveAsk: true })).ok).toBe(true);
+    expect((await toolEvents()).map((e) => e.payload.decision)).toEqual(["ask", "approved_once"]);
+    // the approval was for that call only
+    expect(await registry.invoke({ name: "echo_text", input: { text: "x" } }, base)).toMatchObject({ ok: false, error: { kind: "approval_required" } });
+  });
+
+  it("never lets a one-time approval override a deny or a forbidden action", async () => {
+    const denied = await setup(policyWith([{ action: "read.*", resource: "*", effect: "deny" }]));
+    denied.registry.register(echo);
+    expect(await denied.registry.invoke({ name: "echo_text", input: { text: "x" } }, { ...denied.run, approveAsk: true })).toMatchObject({ ok: false, error: { kind: "denied" } });
+    const forbidden = await setup(policyWith([{ action: "read.*", resource: "*", effect: "allow" }], { forbidden_actions: ["echo_text"] }));
+    forbidden.registry.register(echo);
+    expect(await forbidden.registry.invoke({ name: "echo_text", input: { text: "x" } }, { ...forbidden.run, approveAsk: true })).toMatchObject({ ok: false, error: { kind: "denied" } });
+  });
+
   it("honors forbidden_actions by tool name", async () => {
     const { registry, run } = await setup(policyWith([{ action: "read.*", resource: "*", effect: "allow" }], { forbidden_actions: ["echo_text"] }));
     registry.register(echo);

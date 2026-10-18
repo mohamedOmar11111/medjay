@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ModelCatalog, temperatureFor } from "./catalog.js";
+import { estimateCostUsd, ModelCatalog, temperatureFor } from "./catalog.js";
 import type { ResolvedTarget } from "./slots.js";
 
 const SAMPLE = {
@@ -80,6 +80,44 @@ describe("ModelCatalog.load", () => {
   it("does not leave a partial cache file behind on failure", async () => {
     await new ModelCatalog({ fetchFn: downFetch, cacheFile }).load();
     await expect(stat(cacheFile)).rejects.toThrow();
+  });
+});
+
+describe("estimateCostUsd", () => {
+  const priced = {
+    anthropic: { models: { "claude-sonnet-5-5": { id: "claude-sonnet-5-5", cost: { input: 3, output: 15, cache_read: 0.3 } } } },
+    google: { models: { "no-price": { id: "no-price" } } },
+  };
+  const loaded = async () => {
+    const catalog = new ModelCatalog({ fetchFn: okFetch(priced), cacheFile });
+    await catalog.load();
+    return catalog;
+  };
+  const usage = (over: Partial<Parameters<typeof estimateCostUsd>[2]> = {}) => ({ inputTokens: 1_000_000, outputTokens: 100_000, cachedTokens: 0, reasoningTokens: 0, ...over });
+
+  it("prices input and output tokens per million from the catalog", async () => {
+    expect(estimateCostUsd(target({}), await loaded(), usage())).toBeCloseTo(3 + 1.5);
+  });
+
+  it("prices cache reads at the cache rate and only the rest at the input rate", async () => {
+    expect(estimateCostUsd(target({}), await loaded(), usage({ inputTokens: 1_000_000, cachedTokens: 800_000, outputTokens: 0 }))).toBeCloseTo(0.2 * 3 + 0.8 * 0.3);
+  });
+
+  it("is zero for local Ollama, whatever the model", async () => {
+    expect(estimateCostUsd(target({ provider: "ollama", model: "gemma4:latest" }), await loaded(), usage())).toBe(0);
+  });
+
+  it("is unknown (null) for a vendor model the catalog does not price, and for compatible endpoints", async () => {
+    const catalog = await loaded();
+    expect(estimateCostUsd(target({ provider: "google", model: "no-price" }), catalog, usage())).toBeNull();
+    expect(estimateCostUsd(target({ model: "not-in-catalog" }), catalog, usage())).toBeNull();
+    expect(estimateCostUsd(target({ provider: "openai_compatible", model: "gpt-6-luna" }), catalog, usage())).toBeNull();
+  });
+
+  it("is unknown when the catalog is unavailable", async () => {
+    const empty = new ModelCatalog({ fetchFn: downFetch, cacheFile: join(dir, "none.json") });
+    await empty.load();
+    expect(estimateCostUsd(target({}), empty, usage())).toBeNull();
   });
 });
 

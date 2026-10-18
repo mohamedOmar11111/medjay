@@ -45,6 +45,26 @@ describe("Redactor: phone numbers and emails", () => {
   });
 });
 
+describe("Redactor: continuing a run after a restart", () => {
+  it("does not reuse a placeholder number that already appears in saved text", () => {
+    const r = new Redactor();
+    r.continueFrom(["earlier step mentioned [PHONE_1] and [PHONE_2] and [EMAIL_3]"]);
+    expect(r.redact("new +201000000000 and x@y.co").text).toBe("new [PHONE_3] and [EMAIL_4]");
+  });
+
+  it("starts at 1 when the saved text has no placeholders, and ignores look-alikes", () => {
+    const r = new Redactor();
+    r.continueFrom(["no placeholders here, only [PHONE] and [PHONE_x] and PHONE_9"]);
+    expect(r.redact("+201000000000").text).toBe("[PHONE_1]");
+  });
+
+  it("keeps handing out increasing numbers for new values after continuing", () => {
+    const r = new Redactor();
+    r.continueFrom(["[PHONE_5]"]);
+    expect(r.redact("+201000000000 then +966551234567 then +201000000000").text).toBe("[PHONE_6] then [PHONE_7] then [PHONE_6]");
+  });
+});
+
 describe("Redactor: things that are not personal data are left alone", () => {
   it.each([
     "Ad set 23859102938 spent 640",

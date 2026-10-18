@@ -37,6 +37,8 @@ export class Redactor {
   private readonly phones = new Map<string, number>();
   private readonly emails = new Map<string, number>();
   private readonly total: RedactionCounts = { phone: 0, email: 0, secret: 0 };
+  private lastPhone = 0;
+  private lastEmail = 0;
 
   redact(original: string): { text: string } {
     const secrets = redactSecretValues(original);
@@ -73,6 +75,20 @@ export class Redactor {
     return { text: out + source.slice(cursor) };
   }
 
+  /**
+   * After a restart (resume), saved text already holds placeholders like [PHONE_2]. Continue the
+   * numbering after the highest one seen so a new value never reuses an old placeholder.
+   */
+  continueFrom(savedTexts: readonly string[]): void {
+    for (const text of savedTexts) {
+      for (const m of text.matchAll(/\[(PHONE|EMAIL)_(\d+)\]/g)) {
+        const n = Number(m[2]);
+        if (m[1] === "PHONE") this.lastPhone = Math.max(this.lastPhone, n);
+        else this.lastEmail = Math.max(this.lastEmail, n);
+      }
+    }
+  }
+
   /** Counts of everything replaced so far (a repeated value counts each time). Never the values. */
   counts(): RedactionCounts {
     return { ...this.total };
@@ -82,7 +98,7 @@ export class Redactor {
     const map = hit.kind === "phone" ? this.phones : this.emails;
     let index = map.get(hit.key);
     if (index === undefined) {
-      index = map.size + 1;
+      index = hit.kind === "phone" ? ++this.lastPhone : ++this.lastEmail;
       map.set(hit.key, index);
     }
     this.total[hit.kind] += 1;
