@@ -137,6 +137,83 @@ export function funnel(v: Values, spend: number, cpcMultiplier = 1): Outcome {
   };
 }
 
+export const DEFAULT_SEED = 42;
+export const DEFAULT_DRAWS = 10_000;
+const MAX_DRAWS = 200_000;
+
+/** mulberry32: a small, fast, well-distributed 32-bit generator. Deterministic for a given seed. */
+export function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Inverse-CDF draw from a triangular distribution with its mode at `mode`. */
+export function triangular(u: number, low: number, mode: number, high: number): number {
+  if (high <= low) return low;
+  const f = (mode - low) / (high - low);
+  return u < f ? low + Math.sqrt(u * (high - low) * (mode - low)) : high - Math.sqrt((1 - u) * (high - low) * (high - mode));
+}
+
+/** Linear-interpolated percentile of an ascending array (p in 0..1). */
+export function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return Number.NaN;
+  const at = (sorted.length - 1) * p;
+  const lo = Math.floor(at);
+  const hi = Math.ceil(at);
+  return (sorted[lo] as number) + ((sorted[hi] as number) - (sorted[lo] as number)) * (at - lo);
+}
+
+const rawContribution = (v: Values, spend: number, cpcMultiplier: number): number => {
+  const deals = (spend / (v.cpc * cpcMultiplier)) * v.landing_page_cvr * v.lead_to_chat * v.chat_to_qualified * v.qualified_to_deal;
+  const revenue = deals * v.average_deal_value * (1 - v.refund_rate);
+  return revenue * (v.gross_margin - v.bnpl_fee) - spend;
+};
+
+export interface MonteCarlo {
+  seed: number;
+  draws: number;
+  /** What the percentiles describe: contribution at `spend`, or the contribution change of a scale-up. */
+  target: "contribution" | "contribution_delta";
+  p10: number;
+  p50: number;
+  p90: number;
+  mean: number;
+  /** Share of draws above zero. Conditional on the model and its input ranges, not a forecast of reality. */
+  p_positive: number;
+}
+
+function monteCarlo(inputs: Partial<Record<InputKey, RangedInput>>, spend: number, scaled: { spend: number; multiplier: number } | null, seed: number, draws: number): MonteCarlo {
+  const random = mulberry32(seed);
+  const results: number[] = [];
+  for (let i = 0; i < draws; i += 1) {
+    const v = {} as Values;
+    for (const spec of INPUTS) {
+      const given = inputs[spec.key];
+      // one uniform per input per draw, in a fixed order, so a draw never depends on which inputs are set
+      const u = random();
+      v[spec.key] = given ? triangular(u, given.low, given.value, given.high) : 0;
+    }
+    results.push(scaled ? rawContribution(v, scaled.spend, scaled.multiplier) - rawContribution(v, spend, 1) : rawContribution(v, spend, 1));
+  }
+  results.sort((a, b) => a - b);
+  return {
+    seed,
+    draws,
+    target: scaled ? "contribution_delta" : "contribution",
+    p10: r2(percentile(results, 0.1)),
+    p50: r2(percentile(results, 0.5)),
+    p90: r2(percentile(results, 0.9)),
+    mean: r2(results.reduce((a, b) => a + b, 0) / results.length),
+    p_positive: Math.round((results.filter((x) => x > 0).length / results.length) * 10000) / 10000,
+  };
+}
+
 const GOOD_WHEN_HIGH: Record<InputKey, boolean> = {
   cpc: false,
   landing_page_cvr: true,
@@ -154,6 +231,9 @@ export interface SimulateOptions {
   /** Percent change in spend to test, e.g. 50 for +50%. */
   scalePct?: number;
   elasticity?: number;
+  /** Seed for the Monte Carlo draws (default 42). The same seed gives the same result. */
+  seed?: number;
+  draws?: number;
   /** What scout measured, to show how far the model is from reality. */
   observed?: { cost_per_deal: number | null; blended_mer: number | null } | undefined;
 }
@@ -183,6 +263,7 @@ export type SimulationResult =
       scale: { pct: number; elasticity: number; cpc_multiplier: number; spend: number } | null;
       inputs: Partial<Record<InputKey, RangedInput>>;
       scenarios: Scenario[];
+      monte_carlo: MonteCarlo;
       break_even: { cost_per_deal: number; roas: number };
       sensitivity: Sensitivity[];
       assumptions: string[];
@@ -192,6 +273,10 @@ export type SimulationResult =
 export function simulate(economics: UnitEconomics, options: SimulateOptions): SimulationResult {
   if (economics.problems.length > 0) return { status: "insufficient_inputs", problems: economics.problems };
   if (!(options.spend > 0)) throw new RangeError("spend must be a positive number");
+  const seed = options.seed ?? DEFAULT_SEED;
+  const draws = options.draws ?? DEFAULT_DRAWS;
+  if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError("seed must be an integer from 0 to 4294967295");
+  if (!Number.isInteger(draws) || draws < 100 || draws > MAX_DRAWS) throw new RangeError(`draws must be a whole number from 100 to ${MAX_DRAWS}`);
   const elasticity = options.elasticity ?? ELASTICITY_DEFAULT;
   if (elasticity < 0 || elasticity > 2) throw new RangeError("elasticity must be between 0 and 2");
 
@@ -246,17 +331,19 @@ export function simulate(economics: UnitEconomics, options: SimulateOptions): Si
     ...INPUTS.filter((s) => !s.required && !economics.inputs[s.key]).map((s) => `${s.label} is not set and is treated as 0`),
     `Scenarios put every input at its worse (pessimistic) or better (optimistic) end together; real outcomes rarely hit all ends at once.`,
     ...(scaledSpend === null ? [] : [`ASSUMPTION: cost per click rises with spend as (1 + scale)^${elasticity}. This is not estimated from your data yet; check it against a real scale-up.`]),
+    "Monte Carlo draws each input independently from a triangular distribution (mode at value, ends at low and high); real inputs are correlated, which this ignores.",
     "Rates are taken as constant across spend levels; audience saturation beyond the CPC effect is not modelled.",
   ];
 
   return {
     status: "ok",
     currency: economics.currency,
-    method: "deterministic scenarios and one-at-a-time sensitivity; no random draws",
+    method: "three deterministic scenarios, one-at-a-time sensitivity, and a seeded Monte Carlo (triangular draws)",
     spend: options.spend,
     scale: scaledSpend === null ? null : { pct: scalePct as number, elasticity, cpc_multiplier: r2(multiplier), spend: r2(scaledSpend) },
     inputs: economics.inputs,
     scenarios,
+    monte_carlo: monteCarlo(economics.inputs, options.spend, scaledSpend === null ? null : { spend: scaledSpend, multiplier }, seed, draws),
     break_even: { cost_per_deal: r2(perDeal), roas: marginPerRevenue > 0 ? r2(1 / marginPerRevenue) : Number.POSITIVE_INFINITY },
     sensitivity,
     assumptions,

@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "../constants.js";
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -170,6 +170,25 @@ const MIGRATIONS: readonly string[] = [
      currency TEXT NOT NULL,
      won_at TEXT NOT NULL,
      PRIMARY KEY (source_id, deal_id)
+   );`,
+  // 6: simulations a plan can be bound to (content-addressed ids; inputs hashed, never copied into plans)
+  `CREATE TABLE simulations (
+     sim_id TEXT PRIMARY KEY,
+     created_at TEXT NOT NULL,
+     seed INTEGER NOT NULL,
+     draws INTEGER NOT NULL,
+     spend REAL NOT NULL,
+     scale_pct REAL,
+     elasticity REAL NOT NULL,
+     currency TEXT NOT NULL,
+     horizon_days INTEGER NOT NULL,
+     inputs_hash TEXT NOT NULL,
+     source_plan_hash TEXT,
+     target TEXT NOT NULL,
+     p10 REAL NOT NULL,
+     p50 REAL NOT NULL,
+     p90 REAL NOT NULL,
+     p_positive REAL NOT NULL
    );`,
 ];
 

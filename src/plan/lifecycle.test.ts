@@ -39,7 +39,9 @@ async function setup(overridePolicy?: Policy) {
   store = Store.open(join(dir, ".medjay", "experiments.db"));
   const repo = new PlanRepo(store);
   const ledger = new Ledger(join(dir, ".medjay", "audit-log.jsonl"), { now: () => clockNow });
-  const policy = overridePolicy ?? (await loadPolicy(dir));
+  const loaded = await loadPolicy(dir);
+  // these tests are about the lifecycle, not the simulation gate (covered in simulation-gate.test.ts)
+  const policy = overridePolicy ?? PolicySchema.parse({ ...loaded, limits: { ...loaded.limits, require_simulation_for_scale: false } });
   const signing = await ensureSigningKey({ dir, workspaceId: "ws", keystore: memoryKeystore(), env: {} });
   let n = 0;
   return {

@@ -35,8 +35,8 @@ export async function ensureNotExpired(deps: PlanDeps, row: PlanRow): Promise<vo
 export function recheckPolicy(deps: PlanDeps, plan: Plan, context: string) {
   const result = checkPolicy(
     deps.policy,
-    { ...(plan.client === undefined ? {} : { client: plan.client }), actions: policyActions(plan.actions) },
-    deps.baselineDailySpend ? { baselineDailySpend: deps.baselineDailySpend } : {},
+    { ...(plan.client === undefined ? {} : { client: plan.client }), actions: policyActions(plan.actions), simulation: plan.simulation },
+    { stage: "execute", ...(deps.baselineDailySpend ? { baselineDailySpend: deps.baselineDailySpend } : {}) },
   );
   if (result.status === "fail") throw new PolicyViolationError(result, context);
   return result;

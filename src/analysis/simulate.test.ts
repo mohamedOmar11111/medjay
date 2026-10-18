@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FIXTURE } from "../../test/helpers/ingest.js";
-import { ELASTICITY_DEFAULT, funnel, loadUnitEconomics, parseUnitEconomics, simulate, type SimulationResult } from "./simulate.js";
+import { ELASTICITY_DEFAULT, funnel, mulberry32, percentile, triangular, loadUnitEconomics, parseUnitEconomics, simulate, type SimulationResult } from "./simulate.js";
 
 const front = (over: Record<string, string> = {}) => {
   const base: Record<string, string> = {
@@ -128,6 +128,67 @@ describe("simulate", () => {
     expect(() => run({}, { spend: 0 })).toThrow(/spend/);
     expect(() => run({}, { scalePct: -100 })).toThrow(/scale-pct/);
     expect(() => run({}, { elasticity: 5 })).toThrow(/elasticity/);
+  });
+});
+
+describe("seeded Monte Carlo", () => {
+  it("gives byte-identical results for the same seed and different ones for another", () => {
+    const a = ok(run({}, { seed: 7 })).monte_carlo;
+    const b = ok(run({}, { seed: 7 })).monte_carlo;
+    const c = ok(run({}, { seed: 8 })).monte_carlo;
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(a.p50).not.toBe(c.p50);
+    expect(a).toMatchObject({ seed: 7, draws: 10000, target: "contribution" });
+  });
+
+  it("orders P10 <= P50 <= P90 and keeps the median near the deterministic base case", () => {
+    const r = ok(run());
+    const mc = r.monte_carlo;
+    expect(mc.p10).toBeLessThanOrEqual(mc.p50);
+    expect(mc.p50).toBeLessThanOrEqual(mc.p90);
+    const base = r.scenarios[1]!.outcome.contribution;
+    // draws are independent triangulars, so the median sits near (not exactly on) the all-values case
+    expect(Math.abs(mc.p50 - base)).toBeLessThan(Math.abs(base) * 0.25);
+    expect(r.scenarios[0]!.outcome.contribution).toBeLessThan(mc.p10);
+    expect(r.scenarios[2]!.outcome.contribution).toBeGreaterThan(mc.p90);
+  });
+
+  it("describes the CHANGE when scaling, and P(delta > 0) falls as the margin thins", () => {
+    const healthy = ok(run({}, { scalePct: 50, elasticity: 0.25 })).monte_carlo;
+    const thin = ok(run({ gross_margin: "{ value: 0.1, low: 0.08, high: 0.12, source: x }" }, { scalePct: 50, elasticity: 0.25 })).monte_carlo;
+    expect(healthy.target).toBe("contribution_delta");
+    expect(healthy.p_positive).toBeGreaterThan(thin.p_positive);
+    expect(thin.p50).toBeLessThan(healthy.p50);
+  });
+
+  it("is certain when there is no uncertainty", () => {
+    const pinned = (v: string) => `{ value: ${v}, low: ${v}, high: ${v}, source: x }`;
+    const r = ok(run({ cpc: pinned("3.45"), landing_page_cvr: pinned("0.022"), lead_to_chat: pinned("0.85"), chat_to_qualified: pinned("0.6"), qualified_to_deal: pinned("0.32"), average_deal_value: pinned("7000"), gross_margin: pinned("0.22"), refund_rate: pinned("0.03"), bnpl_fee: pinned("0.015") }));
+    expect(r.monte_carlo.p10).toBeCloseTo(r.monte_carlo.p90, 2);
+    expect(r.monte_carlo.p50).toBeCloseTo(r.scenarios[1]!.outcome.contribution, 0);
+    expect(r.monte_carlo.p_positive).toBe(1);
+  });
+
+  it("rejects a bad seed or draw count", () => {
+    expect(() => run({}, { seed: -1 })).toThrow(/seed/);
+    expect(() => run({}, { seed: 1.5 })).toThrow(/seed/);
+    expect(() => run({}, { draws: 10 })).toThrow(/draws/);
+  });
+
+  it("the primitives behave: mulberry32 is deterministic, triangular stays in range, percentile interpolates", () => {
+    const a = mulberry32(1);
+    const b = mulberry32(1);
+    expect([a(), a(), a()]).toEqual([b(), b(), b()]);
+    const r = mulberry32(3);
+    for (let i = 0; i < 1000; i += 1) {
+      const x = triangular(r(), 2, 3, 10);
+      expect(x).toBeGreaterThanOrEqual(2);
+      expect(x).toBeLessThanOrEqual(10);
+    }
+    expect(triangular(0.5, 5, 5, 5)).toBe(5);
+    expect(percentile([1, 2, 3, 4], 0.5)).toBe(2.5);
+    expect(percentile([1, 2, 3, 4], 0)).toBe(1);
+    expect(percentile([1, 2, 3, 4], 1)).toBe(4);
   });
 });
 

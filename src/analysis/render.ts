@@ -87,6 +87,9 @@ export function renderSimulation(r: SimulationResult, currency: string): string 
     row("Contribution", (s) => s.scaled?.contribution ?? null);
     row("Change", (s) => s.contribution_delta ?? null);
   }
+  const mc = r.monte_carlo;
+  out.push("", `Monte Carlo (${n0(mc.draws)} draws, seed ${mc.seed}) of ${mc.target === "contribution_delta" ? "the change in contribution from scaling" : "contribution"}: P10 ${n0(mc.p10)}, P50 ${n0(mc.p50)}, P90 ${n0(mc.p90)}, P(above zero) ${(mc.p_positive * 100).toFixed(0)}%`);
+  out.push("  P(above zero) is conditional on the model and the input ranges; it is not a forecast of reality.");
   out.push("", `Break-even: cost per deal ${n2(r.break_even.cost_per_deal)} ${currency}, ROAS ${n2(r.break_even.roas)}`);
   if (r.observed_check) {
     const o = r.observed_check;

@@ -54,6 +54,10 @@ export const PolicySchema = z
           .strict()
           .optional(),
         max_new_campaign_daily_budget: z.number().positive().optional(),
+        /** A plan that raises a daily budget needs a passing simulation before it can be approved. */
+        require_simulation_for_scale: z.boolean().default(true),
+        /** A passing simulation has P50 above zero and at least this share of draws above zero. */
+        min_simulation_p_positive: z.number().min(0).max(1).default(0.6),
       })
       .strict()
       .prefault({}),

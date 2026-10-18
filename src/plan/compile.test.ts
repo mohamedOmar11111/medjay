@@ -3,8 +3,14 @@ import { canonicalJsonPretty } from "../audit/canonical.js";
 import { PolicySchema, type Policy } from "../shield/policy.js";
 import { compilePlan, PlanInputError, serializePlan, verifyPlanHash, type CompileInput } from "./compile.js";
 
-const policy = (over: Record<string, unknown> = {}): Policy =>
-  PolicySchema.parse({
+/** Most tests are about other rules, so they run with the simulation gate off unless they say otherwise. */
+const withoutSimulationGate = (over: Record<string, unknown>, raw: Record<string, unknown>): Policy => {
+  const parsed = PolicySchema.parse(raw);
+  const wanted = (over.limits as { require_simulation_for_scale?: boolean } | undefined)?.require_simulation_for_scale;
+  return PolicySchema.parse({ ...parsed, limits: { ...parsed.limits, require_simulation_for_scale: wanted ?? false } });
+};
+
+const policy = (over: Record<string, unknown> = {}): Policy => withoutSimulationGate(over, {
     limits: { max_daily_budget_increase_pct: 20 },
     forbidden_actions: ["delete_campaign"],
     require_two_step_if: { daily_spend_delta_abs_gte: 500, irreversible: true },

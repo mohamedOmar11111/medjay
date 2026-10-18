@@ -19,14 +19,27 @@ export interface PolicyAction {
   irreversible: boolean;
 }
 
+/** The numbers of the simulation a plan cites; the policy only needs these. */
+export interface PolicySimulation {
+  id: string;
+  p50: number;
+  p_positive: number;
+}
+
 export interface PolicySubject {
   client?: string;
   actions: PolicyAction[];
+  simulation?: PolicySimulation | undefined;
 }
 
 export interface PolicyContext {
   /** Current total daily spend across the workspace, for the spend-cap projection. */
   baselineDailySpend?: { amount: number; currency: string };
+  /**
+   * "propose": a missing simulation is reported as not yet evaluated, so the plan can be stored and
+   * simulated. "execute" (approve and strike, the default): a missing simulation fails.
+   */
+  stage?: "propose" | "execute";
 }
 
 export interface PolicyCheck {
@@ -91,6 +104,20 @@ export function checkPolicy(policy: Policy, subject: PolicySubject, context: Pol
       const pct = round6(((action.from - action.to) / action.from) * 100);
       const limit = policy.limits.max_daily_budget_decrease_pct;
       checks.push({ rule: "max_daily_budget_decrease_pct", ok: pct <= limit + EPSILON, action_id: action.id, limit, actual: pct });
+    }
+  }
+
+  if (policy.limits.require_simulation_for_scale && budgets.some((a) => a.to > a.from)) {
+    const sim = subject.simulation;
+    if (!sim) {
+      checks.push({
+        rule: "scale_requires_simulation",
+        ok: context.stage === "propose" ? null : false,
+        note: context.stage === "propose" ? "raises a budget; run `mdj simulate --plan <number>` before it can be approved" : "raises a budget and cites no simulation",
+      });
+    } else {
+      const min = policy.limits.min_simulation_p_positive;
+      checks.push({ rule: "simulation_passes", ok: sim.p50 > 0 && sim.p_positive >= min - EPSILON, limit: min, actual: sim.p_positive, note: `${sim.id}: P50 ${sim.p50}, needs P50 above 0 and P(above zero) of at least ${min}` });
     }
   }
 

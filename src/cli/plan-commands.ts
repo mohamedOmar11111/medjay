@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
+import { bindingProblem, SimulationRepo, refOf, type BudgetMove } from "../analysis/sim-repo.js";
 import { approvePlan, holdPlan, rejectPlan } from "../plan/approve.js";
 import type { CompileInput } from "../plan/compile.js";
 import { readPlanFile } from "../plan/files.js";
@@ -7,7 +8,9 @@ import { proposePlan } from "../plan/propose.js";
 import { renderPlan } from "../plan/render.js";
 import type { PlanState } from "../plan/repo.js";
 import { strikePlan } from "../plan/strike.js";
-import { cliActor, guarded, openPlanContext } from "./util.js";
+import { Store } from "../store/db.js";
+import { cliActor, guarded, openPlanContext, STORE_FILE } from "./util.js";
+import { join } from "node:path";
 
 const planNumber = (value: string): number => {
   const n = Number(value);
@@ -19,8 +22,28 @@ interface ProposalFile {
   client?: string;
   origin?: CompileInput["origin"];
   proposals: CompileInput["proposals"];
-  simulation?: CompileInput["simulation"];
+  /** Only { id } of a stored simulation (`mdj simulate --plan`); numbers typed into a file are not accepted. */
+  simulation?: { id: string };
   expires_in_hours?: number;
+}
+
+/** Look the simulation up in the store and check it was run for exactly these budget moves. */
+async function resolveSimulation(dir: string, cited: unknown, proposals: CompileInput["proposals"]): Promise<CompileInput["simulation"]> {
+  const keys = typeof cited === "object" && cited !== null ? Object.keys(cited) : [];
+  const id = (cited as { id?: unknown } | null)?.id;
+  if (typeof id !== "string" || keys.length !== 1) {
+    throw new Error('"simulation" must be exactly { "id": "sim_..." }, the id printed by `mdj simulate --plan`; typed-in numbers are not accepted');
+  }
+  const store = Store.open(join(dir, STORE_FILE));
+  try {
+    const record = new SimulationRepo(store).require(id);
+    const moves = proposals.flatMap((p): BudgetMove[] => (p.type === "budget_change" ? [{ from: p.from, to: p.to, currency: p.currency }] : []));
+    const problem = bindingProblem(record, moves);
+    if (problem) throw new Error(problem);
+    return refOf(record);
+  } finally {
+    store.close();
+  }
 }
 
 async function readProposalFile(path: string): Promise<ProposalFile> {
@@ -51,12 +74,13 @@ export function registerPlanCommands(program: Command): void {
         const ctx = await openPlanContext(opts.workspace, false);
         try {
           const client = opts.client ?? file.client;
+          const simulation = file.simulation === undefined ? undefined : await resolveSimulation(ctx.deps.dir, file.simulation, file.proposals);
           const { row, plan: compiled } = await proposePlan(ctx.deps, {
             workspace: ctx.workspaceId,
             ...(client ? { client } : {}),
             origin: file.origin ?? { job: "manual", finding_ids: [] },
             proposals: file.proposals,
-            ...(file.simulation ? { simulation: file.simulation } : {}),
+            ...(simulation ? { simulation } : {}),
             ...(file.expires_in_hours ? { expiresInHours: file.expires_in_hours } : {}),
           });
           process.stdout.write(`${renderPlan(compiled, { number: row.number, state: row.state })}\n\nnext: mdj approve ${row.number}\n`);

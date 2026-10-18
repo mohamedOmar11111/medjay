@@ -25,7 +25,7 @@ export function proposePlanActionsTool(policy: Policy) {
           ? { id, type: p.type, target, from: p.from, to: p.to, currency: p.currency, irreversible: false }
           : { id, type: p.type, target, irreversible: false };
       });
-      const result = checkPolicy(policy, { ...(client ? { client } : {}), actions });
+      const result = checkPolicy(policy, { ...(client ? { client } : {}), actions }, { stage: "propose" });
       return { proposals, policy: result };
     },
     trustOf: () => "trusted",

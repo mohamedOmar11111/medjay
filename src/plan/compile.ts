@@ -134,8 +134,8 @@ export function compilePlan(input: CompileInput, context: CompileContext): { pla
 
   const policy_result = checkPolicy(
     context.policy,
-    { ...(input.client === undefined ? {} : { client: input.client }), actions: policyActions(actions) },
-    context.baselineDailySpend ? { baselineDailySpend: context.baselineDailySpend } : {},
+    { ...(input.client === undefined ? {} : { client: input.client }), actions: policyActions(actions), simulation: simulation },
+    { stage: "propose", ...(context.baselineDailySpend ? { baselineDailySpend: context.baselineDailySpend } : {}) },
   );
   const currencies = new Set(actions.flatMap((a) => (a.type === "budget_change" ? [a.currency] : [])));
 

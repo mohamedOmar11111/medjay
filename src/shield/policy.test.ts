@@ -15,8 +15,14 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const policy = (over: Record<string, unknown> = {}): Policy =>
-  PolicySchema.parse({
+/** Most tests are about other rules, so they run with the simulation gate off unless they say otherwise. */
+const withoutSimulationGate = (over: Record<string, unknown>, raw: Record<string, unknown>): Policy => {
+  const parsed = PolicySchema.parse(raw);
+  const wanted = (over.limits as { require_simulation_for_scale?: boolean } | undefined)?.require_simulation_for_scale;
+  return PolicySchema.parse({ ...parsed, limits: { ...parsed.limits, require_simulation_for_scale: wanted ?? false } });
+};
+
+const policy = (over: Record<string, unknown> = {}): Policy => withoutSimulationGate(over, {
     defaults: { effect: "ask" },
     limits: { max_daily_budget_increase_pct: 20, max_daily_budget_decrease_pct: 100 },
     forbidden_actions: ["delete_campaign"],
