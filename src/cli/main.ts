@@ -13,6 +13,7 @@ import { initWorkspace } from "../workspace/init.js";
 import { findWorkspace, loadWorkspace } from "../workspace/load.js";
 import { migrateWorkspaceFile } from "../workspace/migrate.js";
 import { formatDoctor } from "./format.js";
+import { registerAnalysisCommands } from "./analysis-commands.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerStyleCommands } from "./style-commands.js";
@@ -235,6 +236,7 @@ export function buildProgram(): Command {
   registerStyleCommands(program);
   registerToolCommands(program);
   registerRunCommands(program);
+  registerAnalysisCommands(program);
 
   return program;
 }

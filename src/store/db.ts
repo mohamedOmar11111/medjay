@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "../constants.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -104,6 +104,72 @@ const MIGRATIONS: readonly string[] = [
      nudge INTEGER NOT NULL DEFAULT 0,
      created_at TEXT NOT NULL,
      PRIMARY KEY (run_id, step_index)
+   );`,
+  // 5: ingested data (ad platform exports, web analytics, CRM). Phone numbers are stored only as hashes.
+  `CREATE TABLE sources (
+     source_id TEXT PRIMARY KEY,
+     mapping_id TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     platform TEXT,
+     file TEXT NOT NULL,
+     sha256 TEXT NOT NULL,
+     rows INTEGER NOT NULL,
+     issues_json TEXT NOT NULL,
+     period_start TEXT,
+     period_end TEXT,
+     ingested_at TEXT NOT NULL
+   );
+   CREATE TABLE fact_daily (
+     source_id TEXT NOT NULL REFERENCES sources (source_id),
+     date TEXT NOT NULL,
+     platform TEXT NOT NULL,
+     campaign TEXT NOT NULL,
+     adset TEXT NOT NULL,
+     spend REAL NOT NULL,
+     impressions REAL NOT NULL,
+     clicks REAL NOT NULL,
+     conversions REAL NOT NULL,
+     conv_value REAL NOT NULL,
+     currency TEXT NOT NULL
+   );
+   CREATE INDEX fact_daily_date ON fact_daily (date);
+   CREATE TABLE web_sessions (
+     source_id TEXT NOT NULL REFERENCES sources (source_id),
+     date TEXT NOT NULL,
+     landing_page TEXT NOT NULL,
+     source TEXT NOT NULL,
+     campaign TEXT NOT NULL,
+     sessions REAL NOT NULL,
+     key_events REAL NOT NULL
+   );
+   CREATE TABLE leads (
+     lead_id TEXT NOT NULL,
+     source_id TEXT NOT NULL REFERENCES sources (source_id),
+     created_at TEXT NOT NULL,
+     utm_source TEXT NOT NULL,
+     campaign TEXT NOT NULL,
+     adset TEXT NOT NULL,
+     click_id TEXT,
+     phone_hash TEXT,
+     channel TEXT,
+     first_response_seconds REAL,
+     ghosted_after_price INTEGER,
+     PRIMARY KEY (source_id, lead_id)
+   );
+   CREATE TABLE lead_stage_events (
+     lead_id TEXT NOT NULL,
+     source_id TEXT NOT NULL REFERENCES sources (source_id),
+     stage TEXT NOT NULL,
+     entered_at TEXT NOT NULL
+   );
+   CREATE TABLE deals (
+     deal_id TEXT NOT NULL,
+     lead_id TEXT NOT NULL,
+     source_id TEXT NOT NULL REFERENCES sources (source_id),
+     value REAL NOT NULL,
+     currency TEXT NOT NULL,
+     won_at TEXT NOT NULL,
+     PRIMARY KEY (source_id, deal_id)
    );`,
 ];
 

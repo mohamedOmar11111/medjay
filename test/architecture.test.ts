@@ -12,6 +12,8 @@ const ALLOWED: Record<string, string[]> = {
   shared: [],
   audit: ["shared"],
   models: ["shared"],
+  ingest: ["store", "audit", "shared"],
+  analysis: ["ingest", "store", "audit", "shared"],
   pillars: ["shared"],
   shield: ["shared"],
   store: ["shared"],
@@ -20,8 +22,8 @@ const ALLOWED: Record<string, string[]> = {
   runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
-  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
-  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
+  cli: ["analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  root: ["cli", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {
