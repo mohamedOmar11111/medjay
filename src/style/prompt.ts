@@ -1,5 +1,14 @@
 // Model-facing anti-slop guidance, generated from the same rule data the linter uses.
-import { PROTOCOL_COPULA, PROTOCOL_POLITE, PROTOCOL_TRANSITIONS, PROTOCOL_VOCAB } from "./slop-rules.js";
+import {
+  ARABIC_CLICHES,
+  ARABIC_DIALECT,
+  ARABIC_INFLATION,
+  ARABIC_TRANSITIONS,
+  PROTOCOL_COPULA,
+  PROTOCOL_POLITE,
+  PROTOCOL_TRANSITIONS,
+  PROTOCOL_VOCAB,
+} from "./slop-rules.js";
 import type { BannedPhrase } from "./slop.js";
 
 export function slopPromptRules(options: { extraBanned?: readonly BannedPhrase[] } = {}): string[] {
@@ -14,7 +23,11 @@ export function slopPromptRules(options: { extraBanned?: readonly BannedPhrase[]
     'Avoid false ranges ("from villas to flights"). List the specific top three instead.',
     "Vary sentence length. Fragments are fine. Lead with the punchline.",
     "Use only numbers that appear in the claim register. If a number is not there, leave it out and flag it as awaiting evidence.",
-    "Arabic: write in the client's dialect as native copy, not translation; avoid stock phrases and stiff formal transitions.",
+    "Arabic: write in the client's dialect as native copy, not translation.",
+    `Arabic: never open or link sentences with: ${ARABIC_TRANSITIONS.join("، ")}.`,
+    `Arabic: never use these translated cliches: ${ARABIC_CLICHES.map((c) => c.shown).join("، ")}.`,
+    `Arabic: no inflation (${ARABIC_INFLATION.join("، ")}); say the concrete offer: price, dates, what is included.`,
+    `Arabic: use one dialect per text block. Egyptian markers (${ARABIC_DIALECT.egyptian.join("، ")}) and Khaleeji markers (${ARABIC_DIALECT.khaleeji.join("، ")}) must not appear together.`,
   ];
   const extra = options.extraBanned ?? [];
   if (extra.length > 0) {

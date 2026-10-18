@@ -29,7 +29,7 @@ describe("Store", () => {
   it("creates the database (and its folder) at the fixed path and reports its schema version", async () => {
     const store = Store.open(file);
     expect((await stat(file)).isFile()).toBe(true);
-    expect(store.schemaVersion()).toBe(2);
+    expect(store.schemaVersion()).toBe(3);
     store.close();
   });
 
@@ -44,7 +44,7 @@ describe("Store", () => {
     first.recordUsage(usage());
     first.close();
     const second = Store.open(file);
-    expect(second.schemaVersion()).toBe(2);
+    expect(second.schemaVersion()).toBe(3);
     expect(second.usageSummary()).toHaveLength(1);
     second.close();
   });
@@ -71,9 +71,43 @@ describe("Store", () => {
     store.close();
   });
 
+  it("records the surface and summarizes by it, defaulting to other", () => {
+    const store = Store.open(file);
+    store.recordUsage(usage({ surface: "internal_narration", outputTokens: 40 }));
+    store.recordUsage(usage({ surface: "internal_narration", outputTokens: 60 }));
+    store.recordUsage(usage({ surface: "client_copy", outputTokens: 300 }));
+    store.recordUsage(usage());
+    const rows = store.usageSummary(undefined, { bySurface: true });
+    expect(rows.map((r) => [r.surface, r.calls, r.outputTokens])).toEqual([
+      ["client_copy", 1, 300],
+      ["internal_narration", 2, 100],
+      ["other", 1, 200],
+    ]);
+    expect(store.usageSummary()).toHaveLength(1);
+    expect(store.usageSummary()[0]).not.toHaveProperty("surface");
+    store.close();
+  });
+
+  it("upgrades a version 2 database in place, keeping old rows as surface other", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(join(dir, ".medjay"), { recursive: true });
+    const old = new DatabaseSync(file);
+    old.exec("CREATE TABLE usage_events (id INTEGER PRIMARY KEY, ts TEXT NOT NULL, job TEXT, slot TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cached_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0, cost_usd REAL, latency_ms INTEGER NOT NULL, ok INTEGER NOT NULL, error_kind TEXT)");
+    old.exec("CREATE TABLE plans (number INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_hash TEXT NOT NULL, state TEXT NOT NULL, workspace TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, updated_at TEXT NOT NULL, file TEXT NOT NULL); CREATE TABLE approvals (id INTEGER PRIMARY KEY, plan_number INTEGER NOT NULL, plan_hash TEXT NOT NULL, approver TEXT NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, nonce TEXT NOT NULL UNIQUE, signature TEXT NOT NULL); CREATE TABLE confirmations (plan_number INTEGER PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0); CREATE TABLE action_results (plan_number INTEGER NOT NULL, action_id TEXT NOT NULL, status TEXT NOT NULL, detail TEXT, artifact TEXT, ts TEXT NOT NULL, PRIMARY KEY (plan_number, action_id))");
+    old.exec("INSERT INTO usage_events (ts, slot, provider, model, latency_ms, ok) VALUES ('2026-10-01T00:00:00.000Z', 'fast', 'ollama', 'qwen2.5', 10, 1)");
+    old.exec("PRAGMA user_version = 2");
+    old.close();
+    const store = Store.open(file);
+    expect(store.schemaVersion()).toBe(3);
+    expect(store.usageSummary(undefined, { bySurface: true })[0]).toMatchObject({ surface: "other", calls: 1 });
+    store.close();
+  });
+
   it("validates usage records", () => {
     const store = Store.open(file);
     expect(() => store.recordUsage(usage({ slot: "bogus" }))).toThrow(/slot/);
+    expect(() => store.recordUsage(usage({ surface: "billboard" }))).toThrow(/surface/);
     expect(() => store.recordUsage(usage({ inputTokens: -1 }))).toThrow(/token/i);
     expect(() => store.recordUsage(usage({ latencyMs: 1.5 }))).toThrow(/latency/i);
     expect(store.usageSummary()).toHaveLength(0);

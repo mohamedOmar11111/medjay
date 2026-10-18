@@ -70,9 +70,13 @@ const POLICY = {
     "increase_budget_without_plan",
   ],
   require_two_step_if: { daily_spend_delta_abs_gte: 500, irreversible: true },
+  runtime_limits: { max_steps: 12, max_tokens: 150000, max_cost_usd: 1 },
   whatsapp: { approvers: [] },
   rules: [
+    // Agent tools that cannot change anything. Writes always go through a plan, which needs approval.
     { action: "read.*", resource: "*", effect: "allow" },
+    { action: "draft.*", resource: "*", effect: "allow" },
+    { action: "propose.*", resource: "*", effect: "allow" },
     { action: "plan.strike", resource: "*", effect: "ask" },
   ],
   circuit_breakers: { grant: null, rules: [] },
@@ -83,6 +87,8 @@ const POLICY_HEADER = `# Shield policy: spend caps, limits, forbidden actions, a
 # Identify a sender without storing the raw phone number, by SHA-256 of the E.164 number
 # (sha256: "<64 hex>") or by reference (env: MEDJAY_OWNER_NUMBER, or keychain_ref: owner_number).
 # Voice notes can read and draft but can never strike: that rule is engine code, not config.
+# runtime_limits cap one agent run. Lowering a cap is free; raising one above the engine default
+# (12 steps, 150000 tokens, 1 USD) is recorded in the ledger every time a run starts.
 `;
 
 export async function initWorkspace(options: InitOptions): Promise<{ dir: string; files: string[] }> {

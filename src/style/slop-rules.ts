@@ -56,16 +56,35 @@ export const PROTOCOL_TRANSITIONS = ["Moreover", "Furthermore", "In conclusion"]
 export const PROTOCOL_POLITE = ["Certainly!", "I hope this helps", "Let's explore", "Great question", "I'd be happy to"] as const;
 export const PROTOCOL_COPULA = ["serves as", "boasts"] as const;
 
-export const ARABIC_CLICHES: readonly string[] = [
-  "رحلة لا تُنسى",
-  "تجربة فريدة من نوعها",
-  "في عالم اليوم",
-  "في الختام",
+/** Owner-reviewed Arabic bans (errors). Shown to the model exactly as written. */
+export const ARABIC_TRANSITIONS: readonly string[] = [
+  "في عالمنا اليوم",
+  "في عصرنا الحالي",
+  "في ظل التطور المتسارع",
   "علاوة على ذلك",
   "بالإضافة إلى ذلك",
-  "من الجدير بالذكر",
-  "لا شك أن",
+  "ومن الجدير بالذكر",
+  "في الختام",
 ];
+/** Translated clichés; each is a regex source over NORMALIZED text, with its display form. */
+export const ARABIC_CLICHES: readonly { shown: string; source: string }[] = [
+  { shown: "أطلق العنان", source: "[اينت]طلق(?:ي|وا|ون)?\\s+العنان|اطلاق\\s+العنان" },
+  // "ب" attaches to the next word (بتجربتك), so the rule consumes that word to satisfy the word boundary.
+  { shown: "ارتقِ بـ", source: "ارتق(?:ي|وا)?\\s+ب\\p{L}*" },
+  { shown: "سواء كنت تبحث عن", source: "سواء\\s+كنت(?:م|ي)?\\s+(?:تبحث|تبحثون|تبحثين)\\s+عن" },
+];
+/** Travel and marketing inflation: an error unless the workspace allows it for a concrete offer. */
+export const ARABIC_INFLATION: readonly string[] = ["رحلة لا تُنسى", "تجربة استثنائية لا مثيل لها"];
+/** Earlier starter list: still warnings, still awaiting native review. */
+export const ARABIC_STARTER: readonly string[] = ["في عالم اليوم", "تجربة فريدة من نوعها", "لا شك أن"];
+/** Vocabulary that marks a dialect. Mixing the two in one text block is flagged. */
+export const ARABIC_DIALECT = {
+  egyptian: ["دلوقتي", "دلوقت", "عشان", "كدا", "كده"],
+  khaleeji: ["الحين", "وايد", "عشانك"],
+} as const;
+
+/** Arabic match with an optional attached conjunction prefix (و or ف), which is part of the match. */
+export const arWord = (source: string): RegExp => new RegExp(`(?<![\\p{L}\\p{N}_])[وف]?(?:${source})(?![\\p{L}\\p{N}_])`, "giu");
 
 export const EXTENDED_WORDS: readonly string[] = [
   "elevat(?:e|es|ed|ing)",
@@ -92,7 +111,7 @@ export const EXTENDED_PHRASES: readonly string[] = [
 ];
 export const EXTENDED_TRANSITIONS: readonly string[] = ["Additionally", "In addition", "In summary", "To summarize", "That being said", "With that said"];
 
-const phraseSource = (phrase: string) =>
+export const phraseSource = (phrase: string) =>
   normalizeText(phrase)
     .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     .replace(/\s+/g, "\\s+");
@@ -215,15 +234,46 @@ export function patternRules(): PatternRule[] {
     },
   );
 
-  rules.push({
-    id: "ar.cliche",
-    pack: "ar",
-    severity: "warn",
-    category: "vocabulary",
-    pattern: word(ARABIC_CLICHES.map(phraseSource).join("|")),
-    message: "Arabic marketing cliche or translation-style transition; needs native review before you rely on this finding",
-    suggestion: "say the concrete thing in the client's dialect",
-  });
+  // A leading "و" on a listed phrase is the conjunction; arWord already allows it on any phrase.
+  const base = (phrase: string) => phrase.replace(/^و(?=من )/u, "");
+  rules.push(
+    {
+      id: "ar.transition",
+      pack: "ar",
+      severity: "error",
+      category: "structure",
+      pattern: arWord(ARABIC_TRANSITIONS.map((p) => phraseSource(base(p))).join("|")),
+      message: "banned Arabic AI opening or transition (owner-reviewed list)",
+      suggestion: "cut it and start with the fact",
+    },
+    {
+      id: "ar.cliche",
+      pack: "ar",
+      severity: "error",
+      category: "vocabulary",
+      pattern: arWord(ARABIC_CLICHES.map((c) => c.source).join("|")),
+      message: "banned translated cliche (owner-reviewed list)",
+      suggestion: "say the plain thing in the client's dialect",
+    },
+    {
+      id: "ar.inflation",
+      pack: "ar",
+      severity: "error",
+      category: "evidence",
+      pattern: arWord(ARABIC_INFLATION.map(phraseSource).join("|")),
+      message: "travel and marketing inflation: it tells the reader instead of showing them",
+      suggestion: "state the concrete offer: price, dates, what is included (or allow it for an offer you can back)",
+    },
+    {
+      id: "ar.starter",
+      pack: "ar",
+      severity: "warn",
+      category: "vocabulary",
+      pattern: arWord(ARABIC_STARTER.map(phraseSource).join("|")),
+      message: "Arabic cliche from the starter list; needs native review before you rely on this finding",
+      suggestion: "say the concrete thing in the client's dialect",
+    },
+  );
 
   return rules;
 }

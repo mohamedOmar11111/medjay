@@ -11,6 +11,9 @@ import { findSecretLeaks } from "./secrets.js";
 
 export const POLICY_FILE = "shield.policy.yaml";
 
+/** Engine defaults for one agent run. A policy may lower these freely; raising them is audited. */
+export const RUN_LIMIT_DEFAULTS = Object.freeze({ max_steps: 12, max_tokens: 150_000, max_cost_usd: 1 });
+
 const Effect = z.enum(["allow", "deny", "ask"]);
 export type Effect = z.infer<typeof Effect>;
 
@@ -62,6 +65,14 @@ export const PolicySchema = z
       })
       .strict()
       .prefault({}),
+    runtime_limits: z
+      .object({
+        max_steps: z.number().int().min(1).max(100).default(RUN_LIMIT_DEFAULTS.max_steps),
+        max_tokens: z.number().int().min(1000).max(2_000_000).default(RUN_LIMIT_DEFAULTS.max_tokens),
+        max_cost_usd: z.number().min(0.01).max(100).default(RUN_LIMIT_DEFAULTS.max_cost_usd),
+      })
+      .strict()
+      .prefault({}),
     whatsapp: z.object({ approvers: z.array(Approver).default([]) }).strict().prefault({}),
     rules: z.array(Rule).default([]),
     circuit_breakers: z
@@ -86,6 +97,21 @@ export class PolicyError extends Error {
     );
     this.name = "PolicyError";
   }
+}
+
+export interface RaisedLimit {
+  key: keyof typeof RUN_LIMIT_DEFAULTS;
+  default: number;
+  configured: number;
+}
+
+/** The limits a run will use, and which of them the policy raised above the engine default. */
+export function effectiveRunLimits(policy: Policy): { limits: Policy["runtime_limits"]; raised: RaisedLimit[] } {
+  const keys = Object.keys(RUN_LIMIT_DEFAULTS) as (keyof typeof RUN_LIMIT_DEFAULTS)[];
+  const raised = keys
+    .filter((key) => policy.runtime_limits[key] > RUN_LIMIT_DEFAULTS[key])
+    .map((key) => ({ key, default: RUN_LIMIT_DEFAULTS[key], configured: policy.runtime_limits[key] }));
+  return { limits: policy.runtime_limits, raised };
 }
 
 const E164 = /^\+[1-9]\d{7,14}$/;

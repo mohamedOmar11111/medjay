@@ -16,6 +16,7 @@ import { formatDoctor } from "./format.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerStyleCommands } from "./style-commands.js";
+import { registerToolCommands } from "./tool-commands.js";
 import { guarded, LEDGER_FILE, STORE_FILE, workspaceDirOrThrow } from "./util.js";
 import { readSecret } from "./secret-input.js";
 
@@ -197,8 +198,9 @@ export function buildProgram(): Command {
     .description("token usage by slot, provider and model, from the machine-state store")
     .option("--workspace <dir>", "workspace folder")
     .option("--since <when>", "7d, or an ISO date", "30d")
+    .option("--by-surface", "split by surface (internal narration, WhatsApp reply, client copy, diagnosis) to measure terse-output savings")
     .option("--json", "machine-readable output")
-    .action((opts: { workspace?: string; since: string; json?: boolean }) =>
+    .action((opts: { workspace?: string; since: string; json?: boolean; bySurface?: boolean }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
         const file = join(dir, STORE_FILE);
@@ -208,7 +210,7 @@ export function buildProgram(): Command {
         }
         const store = Store.open(file);
         try {
-          const rows = store.usageSummary(parseSince(opts.since));
+          const rows = store.usageSummary(parseSince(opts.since), { bySurface: opts.bySurface === true });
           if (opts.json) {
             process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
           } else if (rows.length === 0) {
@@ -217,7 +219,7 @@ export function buildProgram(): Command {
             for (const r of rows) {
               const cost = r.costUsd === null ? "n/a" : `$${r.costUsd.toFixed(4)}`;
               process.stdout.write(
-                `${r.slot.padEnd(10)} ${`${r.provider}/${r.model}`.padEnd(36)} calls ${num(r.calls)} (${r.failures} failed)  in ${num(r.inputTokens)}  out ${num(r.outputTokens)}  cached ${num(r.cachedTokens)}  cost ${cost}  avg ${Math.round(r.avgLatencyMs)} ms\n`,
+                `${r.slot.padEnd(10)} ${(r.surface ?? "").padEnd(r.surface ? 19 : 0)}${`${r.provider}/${r.model}`.padEnd(36)} calls ${num(r.calls)} (${r.failures} failed)  in ${num(r.inputTokens)}  out ${num(r.outputTokens)}  cached ${num(r.cachedTokens)}  cost ${cost}  avg ${Math.round(r.avgLatencyMs)} ms\n`,
               );
             }
           }
@@ -230,6 +232,7 @@ export function buildProgram(): Command {
   registerPlanCommands(program);
   registerShieldCommands(program);
   registerStyleCommands(program);
+  registerToolCommands(program);
 
   return program;
 }

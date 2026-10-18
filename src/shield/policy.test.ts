@@ -5,7 +5,7 @@ import { parse, stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initWorkspace } from "../workspace/init.js";
 import { checkPolicy, evaluateRules, type PolicyAction } from "./evaluate.js";
-import { hashE164, loadPolicy, PolicyError, PolicySchema, type Policy } from "./policy.js";
+import { effectiveRunLimits, hashE164, loadPolicy, PolicyError, PolicySchema, RUN_LIMIT_DEFAULTS, type Policy } from "./policy.js";
 
 let root: string;
 beforeEach(async () => {
@@ -96,6 +96,53 @@ describe("loadPolicy and PolicySchema", () => {
     expect(cap({ currency: "ZZZ" })).toBe(false);
     expect(cap({ period: "year" })).toBe(false);
     expect(cap({ amount: 0 })).toBe(false);
+  });
+});
+
+describe("runtime_limits", () => {
+  it("defaults to 12 steps, 150,000 tokens and 1 dollar per run", () => {
+    expect(RUN_LIMIT_DEFAULTS).toEqual({ max_steps: 12, max_tokens: 150_000, max_cost_usd: 1 });
+    expect(policy().runtime_limits).toEqual(RUN_LIMIT_DEFAULTS);
+    expect(effectiveRunLimits(policy())).toEqual({ limits: RUN_LIMIT_DEFAULTS, raised: [] });
+  });
+
+  it("lowering a cap is free and reports nothing", () => {
+    const lowered = effectiveRunLimits(policy({ runtime_limits: { max_steps: 6, max_tokens: 50_000, max_cost_usd: 0.25 } }));
+    expect(lowered.limits).toEqual({ max_steps: 6, max_tokens: 50_000, max_cost_usd: 0.25 });
+    expect(lowered.raised).toEqual([]);
+  });
+
+  it("reports every cap raised above the engine default so the caller can audit it", () => {
+    const raised = effectiveRunLimits(policy({ runtime_limits: { max_steps: 20, max_cost_usd: 2 } }));
+    expect(raised.limits).toEqual({ max_steps: 20, max_tokens: 150_000, max_cost_usd: 2 });
+    expect(raised.raised).toEqual([
+      { key: "max_steps", default: 12, configured: 20 },
+      { key: "max_cost_usd", default: 1, configured: 2 },
+    ]);
+  });
+
+  it("bounds the values and rejects unknown keys", () => {
+    const ok = (rl: Record<string, unknown>) => PolicySchema.safeParse({ ...policy(), runtime_limits: rl }).success;
+    expect(ok({ max_steps: 100, max_tokens: 2_000_000, max_cost_usd: 100 })).toBe(true);
+    for (const bad of [{ max_steps: 0 }, { max_steps: 101 }, { max_steps: 1.5 }, { max_tokens: 999 }, { max_tokens: 2_000_001 }, { max_cost_usd: 0 }, { max_cost_usd: 101 }, { unknown: 1 }]) {
+      expect(ok(bad), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("is written by mdj init and loads back", async () => {
+    const dir = join(root, "ws");
+    await initWorkspace({ dir, id: "ws", businessType: "agency" });
+    expect((await loadPolicy(dir)).runtime_limits).toEqual(RUN_LIMIT_DEFAULTS);
+  });
+
+  it("allows read, draft and propose tools by default in a new workspace (they cannot change anything)", async () => {
+    const dir = join(root, "ws");
+    await initWorkspace({ dir, id: "ws", businessType: "agency" });
+    const loaded = await loadPolicy(dir);
+    for (const action of ["read.read_file", "draft.lint_copy", "propose.propose_plan_actions"]) {
+      expect(evaluateRules(loaded.rules, action, "anything", loaded.defaults.effect), action).toBe("allow");
+    }
+    expect(evaluateRules(loaded.rules, "write.budget_change", "meta:adset/1", loaded.defaults.effect)).toBe("ask");
   });
 });
 

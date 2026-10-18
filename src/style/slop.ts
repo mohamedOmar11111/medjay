@@ -2,7 +2,7 @@
 // customer-facing (ad copy, posts, emails, WhatsApp drafts) before it can enter a plan.
 import { extractNumericTokens, indexClaims, type ClaimRegister } from "./claims.js";
 import { normalize, normalizeText, toOriginalRange, type Normalized } from "./normalize.js";
-import { patternRules, phrasePattern, type Kind, type Pack, type Severity } from "./slop-rules.js";
+import { ARABIC_DIALECT, arWord, patternRules, phrasePattern, phraseSource as phrasePatternSource, type Kind, type Pack, type Severity } from "./slop-rules.js";
 
 export type { Kind, Pack, Severity };
 
@@ -152,6 +152,32 @@ export function lintText(original: string, options: SlopOptions = {}): SlopRepor
       for (const m of norm.text.matchAll(opener)) {
         add("opener.question", "warn", "structure", "stock rhetorical opener", "open with the fact", m.index as number, (m.index as number) + m[0].length);
       }
+    }
+  }
+
+  if (packs.has("ar")) {
+    const egyptian = arWord(ARABIC_DIALECT.egyptian.map(phrasePatternSource).join("|"));
+    const khaleeji = arWord(ARABIC_DIALECT.khaleeji.map(phrasePatternSource).join("|"));
+    let offset = 0;
+    for (const block of norm.text.split(/(\n\s*\n)/)) {
+      const marks = (pattern: RegExp) => [...block.matchAll(pattern)];
+      const eg = marks(egyptian);
+      const kh = marks(khaleeji);
+      if (eg.length > 0 && kh.length > 0) {
+        const first = [...eg, ...kh].sort((a, b) => (a.index as number) - (b.index as number))[0] as RegExpMatchArray;
+        const names = (found: RegExpMatchArray[]) => [...new Set(found.map((m) => m[0].replace(/^[وف](?=.)/u, "")))].join(", ");
+        const start = offset + (first.index as number);
+        add(
+          "ar.dialect_drift",
+          "warn",
+          "dialect",
+          `mixes Egyptian (${names(eg)}) and Khaleeji (${names(kh)}) vocabulary in one text block`,
+          "pick one dialect per block, the client's",
+          start,
+          start + first[0].length,
+        );
+      }
+      offset += block.length;
     }
   }
 

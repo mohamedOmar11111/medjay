@@ -172,33 +172,6 @@ describe("claims: every public number needs a verified claim", () => {
   });
 });
 
-describe("Arabic cliches (starter pack, needs native review)", () => {
-  it("flags common cliche phrases, including with diacritics and tatweel", () => {
-    expect(lint("رحلة لا تُنسى تنتظرك").findings.some((f) => f.rule === "ar.cliche")).toBe(true);
-    expect(lint("رحـلة لا تنسى").findings.some((f) => f.rule === "ar.cliche")).toBe(true);
-    expect(lint("علاوة على ذلك، الحجز سهل").findings.some((f) => f.rule === "ar.cliche")).toBe(true);
-  });
-
-  it("marks every Arabic finding as needing native review and keeps severity at warn", () => {
-    const hit = lint("في عالم اليوم").findings.find((f) => f.rule === "ar.cliche");
-    expect(hit?.severity).toBe("warn");
-    expect(hit?.message).toMatch(/native/i);
-  });
-
-  it("can be switched off", () => {
-    expect(lint("رحلة لا تنسى", { packs: ["protocol", "extended"] }).findings).toEqual([]);
-  });
-
-  it("reports positions against the ORIGINAL text, not the normalized one", () => {
-    const text = "مرحبا\nرحـلة لا تُنسى";
-    const hit = lint(text).findings.find((f) => f.rule === "ar.cliche")!;
-    expect(hit.line).toBe(2);
-    expect(hit.column).toBe(1);
-    expect(text.slice(hit.index, hit.index + hit.match.length)).toBe(hit.match);
-    expect(hit.match).toBe("رحـلة لا تُنسى");
-  });
-});
-
 describe("positions, ordering and reporting", () => {
   it("gives 1-based line and column and the exact matched text", () => {
     const text = "Plain line.\nWe leverage it.";

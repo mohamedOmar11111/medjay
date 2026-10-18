@@ -4,9 +4,9 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { SLOT_NAMES, type SlotName } from "../constants.js";
+import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "../constants.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -64,12 +64,15 @@ const MIGRATIONS: readonly string[] = [
      ts TEXT NOT NULL,
      PRIMARY KEY (plan_number, action_id)
    );`,
+  // 3: which surface a model call served (internal narration, WhatsApp reply, client copy, diagnosis)
+  `ALTER TABLE usage_events ADD COLUMN surface TEXT NOT NULL DEFAULT 'other';`,
 ];
 
 export interface UsageRecord {
   ts?: string;
   job?: string;
   slot: SlotName;
+  surface?: UsageSurface;
   provider: string;
   model: string;
   inputTokens?: number;
@@ -84,6 +87,7 @@ export interface UsageRecord {
 
 export interface UsageSummaryRow {
   slot: string;
+  surface?: string;
   provider: string;
   model: string;
   calls: number;
@@ -167,16 +171,19 @@ export class Store {
     if (!Number.isInteger(record.latencyMs) || record.latencyMs < 0) {
       throw new Error("latency must be a non-negative integer (milliseconds)");
     }
+    const surface = record.surface ?? "other";
+    if (!(USAGE_SURFACES as readonly string[]).includes(surface)) throw new Error(`unknown surface "${surface}"`);
     this.db
       .prepare(
         `INSERT INTO usage_events
-           (ts, job, slot, provider, model, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost_usd, latency_ms, ok, error_kind)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (ts, job, slot, surface, provider, model, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost_usd, latency_ms, ok, error_kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.ts ?? new Date().toISOString(),
         record.job ?? null,
         record.slot,
+        surface,
         record.provider,
         record.model,
         input,
@@ -190,10 +197,12 @@ export class Store {
       );
   }
 
-  usageSummary(sinceIso?: string): UsageSummaryRow[] {
+  /** Usage grouped by slot, provider and model, and by surface too when `bySurface` is set. */
+  usageSummary(sinceIso?: string, options: { bySurface?: boolean } = {}): UsageSummaryRow[] {
+    const surface = options.bySurface === true;
     const rows = this.db
       .prepare(
-        `SELECT slot, provider, model,
+        `SELECT slot, ${surface ? "surface," : ""} provider, model,
                 COUNT(*) AS calls,
                 SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failures,
                 SUM(input_tokens) AS inputTokens,
@@ -204,12 +213,13 @@ export class Store {
                 AVG(latency_ms) AS avgLatencyMs
            FROM usage_events
           WHERE ts >= ?
-          GROUP BY slot, provider, model
-          ORDER BY slot, provider, model`,
+          GROUP BY slot, ${surface ? "surface," : ""} provider, model
+          ORDER BY slot, ${surface ? "surface," : ""} provider, model`,
       )
       .all(sinceIso ?? "") as Record<string, unknown>[];
     return rows.map((row) => ({
       slot: String(row.slot),
+      ...(surface ? { surface: String(row.surface) } : {}),
       provider: String(row.provider),
       model: String(row.model),
       calls: Number(row.calls),

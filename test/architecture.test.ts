@@ -17,10 +17,11 @@ const ALLOWED: Record<string, string[]> = {
   store: ["shared"],
   style: ["shared"],
   plan: ["shield", "store", "audit", "models", "shared"],
+  runtime: ["shield", "audit", "style", "plan", "workspace", "store", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "store", "style", "shared"],
-  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "shared", "root"],
-  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "shared"],
+  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {
@@ -72,4 +73,29 @@ describe("architecture", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("keeps agent tools unable to write, spawn, or execute plans", async () => {
+    const offenders: string[] = [];
+    const FORBIDDEN_MODULES = /^(?:node:)?(?:fs|fs\/promises|child_process|net|http|https|http2|dgram|tls|worker_threads|vm|cluster)$/;
+    const FORBIDDEN_LOCAL = /\/(?:plan\/(?:strike|export|approve|files|propose|repo|signing)|audit\/ledger|store\/db)\.js$/;
+    const IMPORT_ANY = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+    for (const file of await sourceFiles(join(SRC, "runtime", "tools"))) {
+      const text = await readFile(file, "utf8");
+      for (const match of text.matchAll(IMPORT_ANY)) {
+        const spec = match[1]!;
+        if (FORBIDDEN_MODULES.test(spec) || FORBIDDEN_LOCAL.test(spec)) offenders.push(`${relative(SRC, file)} imports ${spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps the registry free of any write path to a platform or a process", async () => {
+    const offenders: string[] = [];
+    for (const name of ["registry.ts", "scope.ts", "env.ts"]) {
+      const text = await readFile(join(SRC, "runtime", name), "utf8");
+      if (/child_process|plan\/(?:strike|export|approve)/.test(text)) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
 });
+
