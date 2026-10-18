@@ -19,7 +19,7 @@ const ALLOWED: Record<string, string[]> = {
   shield: ["shared"],
   store: ["shared"],
   style: ["shared"],
-  plan: ["shield", "store", "audit", "models", "shared"],
+  plan: ["shield", "store", "audit", "models", "ingest", "shared"],
   runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],

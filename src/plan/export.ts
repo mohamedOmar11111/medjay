@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalJsonPretty } from "../audit/canonical.js";
+import { toMinorUnits } from "./currency.js";
 import type { ActionStatus } from "./repo.js";
 import type { CompiledAction, Plan } from "./types.js";
 
@@ -37,6 +38,41 @@ function campaignNameProblem(action: Extract<CompiledAction, { target: { name?: 
   if (!name) return "campaign name required for Google Ads Editor export (the target has no name)";
   if (UNSAFE_NAME.test(name)) return "campaign name is unsafe for a spreadsheet (starts with = + - @ or has control characters); rename it or edit by hand";
   return undefined;
+}
+
+const isMetaMutation = (a: CompiledAction): a is Extract<CompiledAction, { type: "budget_change" | "status_change" }> =>
+  (a.type === "budget_change" || a.type === "status_change") && a.target.platform === "meta" && ["campaign", "adset"].includes(a.target.kind) && a.executor === "export";
+
+export interface MetaRequest {
+  action_id: string;
+  method: "POST";
+  /** The object to change; the Graph API version is chosen by whoever sends the request. */
+  path: string;
+  params: Record<string, string>;
+  /** What the object should look like right now; stop if it does not. */
+  expect_before: Record<string, string>;
+}
+
+/** Meta has no bulk file import, so the export is the exact requests a person or a connector would send. Nothing is sent. */
+export function buildMetaMutations(actions: CompiledAction[]): { requests: MetaRequest[]; written: string[]; problems: Map<string, string> } {
+  const requests: MetaRequest[] = [];
+  const problems = new Map<string, string>();
+  for (const action of actions.filter(isMetaMutation)) {
+    const path = `/${action.target.id}`;
+    if (action.type === "budget_change") {
+      const to = toMinorUnits(action.to, action.currency);
+      const from = toMinorUnits(action.from, action.currency);
+      if (to === null || from === null) {
+        problems.set(action.id, `${action.currency} cannot hold a budget of ${action.to} (or ${action.from}) in whole minor units`);
+        continue;
+      }
+      requests.push({ action_id: action.id, method: "POST", path, params: { daily_budget: String(to) }, expect_before: { daily_budget: String(from) } });
+    } else {
+      const word = (s: "ENABLED" | "PAUSED") => (s === "ENABLED" ? "ACTIVE" : "PAUSED");
+      requests.push({ action_id: action.id, method: "POST", path, params: { status: word(action.to) }, expect_before: { status: word(action.from) } });
+    }
+  }
+  return { requests, written: requests.map((r) => r.action_id), problems };
 }
 
 const needsConnector = (a: CompiledAction): boolean => a.executor === "mcp";
@@ -142,6 +178,26 @@ export async function exportPlan(options: {
     }
   }
 
+  // Meta mutations (rewritten from every Meta action, only if one is pending)
+  if (pendingActions.some(isMetaMutation)) {
+    const built = buildMetaMutations(plan.actions);
+    if (built.requests.length > 0) {
+      const text = `${canonicalJsonPretty({
+        plan_id: plan.plan_id,
+        plan_hash: plan.plan_hash,
+        note: "Dry-run payloads: Medjay has not sent any of these. Send each with the Marketing API (or by hand in Ads Manager) only if the object still matches expect_before.",
+        requests: built.requests,
+      })}
+`;
+      await writeAtomic(join(exportDir, "meta-mutations.json"), text);
+      artifacts["meta-mutations.json"] = sha256(text);
+    }
+    for (const action of pendingActions.filter(isMetaMutation)) {
+      const problem = built.problems.get(action.id);
+      outcomes.set(action.id, problem ? { action_id: action.id, status: "failed", detail: problem } : { action_id: action.id, status: "exported", artifact: "meta-mutations.json" });
+    }
+  }
+
   for (const action of pendingActions) {
     if (outcomes.has(action.id)) continue;
     if (action.executor === "mcp") {
@@ -165,7 +221,7 @@ export async function exportPlan(options: {
   }
 
   // Manual steps for everything that is not in the Editor CSV or a patch.
-  const manual = plan.actions.filter((a) => !isGoogle(a) && a.type !== "code_patch" && !needsConnector(a));
+  const manual = plan.actions.filter((a) => !isGoogle(a) && !isMetaMutation(a) && a.type !== "code_patch" && !needsConnector(a));
   const changes = [
     `# Changes for plan ${plan.plan_id}`,
     "",
@@ -187,6 +243,7 @@ export async function exportPlan(options: {
       "",
       "google-ads-editor.csv: import with Google Ads Editor (Account > Import > From file). Editor lists every proposed change for review before you post.",
       "  The column headers have not been validated against a real Editor import yet; try the file in a test account first.",
+      "meta-mutations.json: the exact Meta requests, as dry-run payloads (budgets in minor units). Nothing is sent by Medjay.",
       "CHANGES.md: manual steps for platforms without a file import.",
       "patches/: patches for review. Medjay never applies or deploys them.",
       "manifest.json: every action with its status.",

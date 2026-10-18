@@ -11,6 +11,7 @@ import { readPlanFile } from "./files.js";
 import type { PlanDeps } from "./propose.js";
 import type { PlanState } from "./repo.js";
 import { approvalRecord, verifyApproval } from "./signing.js";
+import { validateExport } from "./validate.js";
 
 const STRIKABLE: readonly PlanState[] = ["approved", "partial", "failed"];
 const SUCCESS = new Set(["exported", "recorded"]);
@@ -68,6 +69,15 @@ export async function strikePlan(deps: PlanDeps, number: number, options: { acto
     throw error;
   }
 
+  // The files are checked before anything is called exported: an action whose file is wrong is failed.
+  const validation = await validateExport({ dir: deps.dir, plan });
+  for (const issue of validation.issues) {
+    for (const id of issue.action_ids) {
+      const at = run.outcomes.findIndex((o) => o.action_id === id && o.status === "exported");
+      if (at >= 0) run.outcomes[at] = { action_id: id, status: "failed", detail: `export validation: ${issue.file}${issue.row ? ` row ${issue.row}` : ""}: ${issue.message}` };
+    }
+  }
+
   for (const outcome of run.outcomes) {
     deps.repo.setActionResult(number, outcome.action_id, outcome.status, outcome.detail, outcome.artifact, deps.now());
   }
@@ -92,6 +102,7 @@ export async function strikePlan(deps: PlanDeps, number: number, options: { acto
       plan_hash: plan.plan_hash,
       results: results.map((r) => ({ action_id: r.action_id, status: r.status })),
       artifacts: run.artifacts,
+      validation: { ok: validation.ok, issues: validation.issues.length, checked: validation.checked },
       ...(csv ? { manifest_sha256: createHash("sha256").update(csv).digest("hex") } : {}),
     },
   });

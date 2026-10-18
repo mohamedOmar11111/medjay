@@ -248,7 +248,10 @@ describe("strikePlan", () => {
     const manifest = JSON.parse(await readFile(join(out, "manifest.json"), "utf8"));
     expect(manifest).toMatchObject({ plan_id: plan.plan_id, plan_hash: plan.plan_hash });
     expect(manifest.actions).toHaveLength(5);
-    expect(await readFile(join(out, "CHANGES.md"), "utf8")).toMatch(/KSA_Bookers_LAL.*100.*120/s);
+    // Meta has no bulk file: its budget change is exported as the exact request, in minor units, never sent
+    const meta = JSON.parse(await readFile(join(out, "meta-mutations.json"), "utf8"));
+    expect(meta.requests).toEqual([{ action_id: "a4", method: "POST", path: "/999", params: { daily_budget: "12000" }, expect_before: { daily_budget: "10000" } }]);
+    expect(await readFile(join(out, "CHANGES.md"), "utf8")).toMatch(/none: every action went into/);
     expect(await readFile(join(out, "patches", "hero.diff"), "utf8")).toContain("+new");
     expect(await readFile(join(out, "README.txt"), "utf8")).toMatch(/not been validated|unverified/i);
 
