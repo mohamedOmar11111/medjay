@@ -1,0 +1,41 @@
+{
+  "name": "medjay",
+  "version": "0.0.0",
+  "description": "Open, CLI-first, all-model growth agent harness with spend guardrails and approval-gated execution.",
+  "license": "MIT",
+  "author": "Mohamed Omar",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "medjay": "./dist/cli.js",
+    "mdj": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/cli.ts",
+    "spike:m0": "tsx spikes/m0-ai-sdk/spike.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.82",
+    "@ai-sdk/google": "^4.0.99",
+    "@ai-sdk/openai": "^4.0.96",
+    "@ai-sdk/openai-compatible": "^3.0.71",
+    "@napi-rs/keyring": "^2.1.1",
+    "ai": "^7.0.143",
+    "commander": "^15.0.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

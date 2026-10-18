@@ -1,0 +1,45 @@
+[
+  {
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "ok": true,
+    "steps": 3,
+    "toolCalls": [
+      "lookup_budget({\"campaign\":\"A\"})",
+      "lookup_budget({\"campaign\":\"B\"})",
+      "add({\"a\":95,\"b\":100})"
+    ],
+    "toolResults": 3,
+    "partTypes": [
+      "custom",
+      "finish",
+      "finish-step",
+      "start",
+      "start-step",
+      "text-delta",
+      "text-end",
+      "text-start",
+      "tool-call",
+      "tool-input-delta",
+      "tool-input-end",
+      "tool-input-start",
+      "tool-result"
+    ],
+    "finalText": "TOTAL=195",
+    "usage": {
+      "inputTokens": 2332,
+      "inputTokenDetails": {
+        "noCacheTokens": 2332,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "outputTokens": 176,
+      "outputTokenDetails": {
+        "textTokens": 176,
+        "reasoningTokens": 0
+      },
+      "totalTokens": 2508
+    },
+    "ms": 3133
+  }
+]
