@@ -5,7 +5,7 @@ import { FORBIDDEN_CONFIG_KEYS } from "../shield/invariants.js";
 import { WORKSPACE_FILE, WorkspaceError, type WorkspaceIssue } from "./errors.js";
 import { migrateV0Config } from "./migrate.js";
 import { DropzoneError, resolveDropzone } from "./paths.js";
-import { findSecretLeaks, type SecretLeak } from "./secrets.js";
+import { findSecretLeaks, type SecretLeak } from "../shield/secrets.js";
 import { WorkspaceSchema, type WorkspaceConfig } from "./schema.js";
 
 export { WORKSPACE_FILE, WorkspaceError, type WorkspaceIssue };

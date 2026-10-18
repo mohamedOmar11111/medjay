@@ -15,10 +15,11 @@ const ALLOWED: Record<string, string[]> = {
   pillars: ["shared"],
   shield: ["shared"],
   store: ["shared"],
+  plan: ["shield", "store", "audit", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "store", "shared"],
-  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "shared", "root"],
-  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "shared"],
+  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "shared", "root"],
+  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {
@@ -65,7 +66,7 @@ describe("architecture", () => {
     const offenders: string[] = [];
     for (const file of await sourceFiles(SRC)) {
       const rel = relative(SRC, file).split(sep).join("/");
-      if (rel === "models/credentials.ts" || rel === "workspace/secrets.ts") continue;
+      if (rel === "models/credentials.ts" || rel === "shield/secrets.ts") continue;
       if (/process\.env\b[^;\n]*API_KEY|\bAPI_KEY\b/.test(await readFile(file, "utf8"))) offenders.push(rel);
     }
     expect(offenders).toEqual([]);

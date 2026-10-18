@@ -6,11 +6,12 @@
 // are unreachable by construction: only MEDJAY_* names are accepted. Secrets are never written to
 // workspace files, plans, logs, or error messages; this is the only module that reads them.
 import { randomBytes } from "node:crypto";
+import { ENV_REF_PATTERN, KEYCHAIN_REF_PATTERN } from "../constants.js";
 import type { Provider } from "./slots.js";
 
+export { ENV_REF_PATTERN, KEYCHAIN_REF_PATTERN };
+
 export const KEYCHAIN_SERVICE = "medjay";
-export const ENV_REF_PATTERN = /^MEDJAY_[A-Z0-9][A-Z0-9_]*$/;
-export const KEYCHAIN_REF_PATTERN = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 
 export type CredentialSource = "keychain" | "env" | "none";
 

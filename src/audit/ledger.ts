@@ -205,14 +205,17 @@ async function withLock<T>(lockPath: string, action: () => Promise<T>): Promise<
       await handle.close();
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // EPERM/EACCES: on Windows a lock file another process just deleted is "pending delete"
+      // and refuses to be recreated for a moment. That is contention, not a failure.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST" && code !== "EPERM" && code !== "EACCES") throw error;
       try {
         const age = Date.now() - (await stat(lockPath)).mtimeMs;
         if (age > LOCK_STALE_MS) await unlink(lockPath);
       } catch {
         // lock vanished between checks; retry immediately
       }
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ledger lock ${lockPath}`);
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ledger lock ${lockPath} (last error: ${code})`);
       await sleep(LOCK_RETRY_MS);
     }
   }

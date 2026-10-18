@@ -74,7 +74,7 @@ const POLICY = {
     { action: "read.*", resource: "*", effect: "allow" },
     { action: "plan.strike", resource: "*", effect: "ask" },
   ],
-  circuit_breakers: { authorization: null, rules: [] },
+  circuit_breakers: { grant: null, rules: [] },
 };
 
 const POLICY_HEADER = `# Shield policy: spend caps, limits, forbidden actions, approvers, circuit breakers.

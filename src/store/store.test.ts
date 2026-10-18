@@ -29,7 +29,7 @@ describe("Store", () => {
   it("creates the database (and its folder) at the fixed path and reports its schema version", async () => {
     const store = Store.open(file);
     expect((await stat(file)).isFile()).toBe(true);
-    expect(store.schemaVersion()).toBe(1);
+    expect(store.schemaVersion()).toBe(2);
     store.close();
   });
 
@@ -44,7 +44,7 @@ describe("Store", () => {
     first.recordUsage(usage());
     first.close();
     const second = Store.open(file);
-    expect(second.schemaVersion()).toBe(1);
+    expect(second.schemaVersion()).toBe(2);
     expect(second.usageSummary()).toHaveLength(1);
     second.close();
   });

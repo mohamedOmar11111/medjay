@@ -13,28 +13,12 @@ import { initWorkspace } from "../workspace/init.js";
 import { findWorkspace, loadWorkspace } from "../workspace/load.js";
 import { migrateWorkspaceFile } from "../workspace/migrate.js";
 import { formatDoctor } from "./format.js";
+import { registerPlanCommands } from "./plan-commands.js";
+import { registerShieldCommands } from "./shield-commands.js";
+import { guarded, LEDGER_FILE, STORE_FILE, workspaceDirOrThrow } from "./util.js";
 import { readSecret } from "./secret-input.js";
 
 const KEY_PROVIDERS = PROVIDERS.filter((p) => p !== "ollama");
-const LEDGER_FILE = join(".medjay", "audit-log.jsonl");
-const STORE_FILE = join(".medjay", "experiments.db");
-
-async function guarded(action: () => Promise<number | void>): Promise<void> {
-  try {
-    const code = await action();
-    if (typeof code === "number") process.exitCode = code;
-  } catch (error) {
-    process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  }
-}
-
-async function workspaceDirOrThrow(explicit?: string): Promise<string> {
-  const dir = explicit ? resolve(explicit) : await findWorkspace(process.cwd());
-  if (dir === null) throw new Error("no workspace found here; run `mdj init` or pass --workspace <dir>");
-  return dir;
-}
-
 /** "7d" or an ISO date to an ISO timestamp. */
 function parseSince(value: string): string {
   const days = /^(\d+)d$/.exec(value);
@@ -241,6 +225,9 @@ export function buildProgram(): Command {
         }
       }),
     );
+
+  registerPlanCommands(program);
+  registerShieldCommands(program);
 
   return program;
 }

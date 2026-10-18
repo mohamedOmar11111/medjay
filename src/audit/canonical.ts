@@ -50,3 +50,8 @@ function encodeObject(value: object, path: string, seen: Set<object>): string {
 export function canonicalJson(value: unknown): string {
   return encode(value, "$", new Set());
 }
+
+/** Canonical JSON, indented for humans (plan files). Key order is sorted, so output is deterministic. */
+export function canonicalJsonPretty(value: unknown): string {
+  return JSON.stringify(JSON.parse(canonicalJson(value)), null, 2);
+}

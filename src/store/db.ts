@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SLOT_NAMES, type SlotName } from "../constants.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -27,6 +27,43 @@ const MIGRATIONS: readonly string[] = [
      error_kind TEXT
    );
    CREATE INDEX usage_events_ts ON usage_events (ts);`,
+  // 2: plans, approvals, two-step confirmations, per-action results
+  `CREATE TABLE plans (
+     number INTEGER PRIMARY KEY AUTOINCREMENT,
+     plan_id TEXT NOT NULL UNIQUE,
+     plan_hash TEXT NOT NULL,
+     state TEXT NOT NULL,
+     workspace TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     file TEXT NOT NULL
+   );
+   CREATE TABLE approvals (
+     id INTEGER PRIMARY KEY,
+     plan_number INTEGER NOT NULL REFERENCES plans (number),
+     plan_hash TEXT NOT NULL,
+     approver TEXT NOT NULL,
+     channel TEXT NOT NULL,
+     ts TEXT NOT NULL,
+     nonce TEXT NOT NULL UNIQUE,
+     signature TEXT NOT NULL
+   );
+   CREATE TABLE confirmations (
+     plan_number INTEGER PRIMARY KEY REFERENCES plans (number),
+     code_hash TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     attempts INTEGER NOT NULL DEFAULT 0
+   );
+   CREATE TABLE action_results (
+     plan_number INTEGER NOT NULL REFERENCES plans (number),
+     action_id TEXT NOT NULL,
+     status TEXT NOT NULL,
+     detail TEXT,
+     artifact TEXT,
+     ts TEXT NOT NULL,
+     PRIMARY KEY (plan_number, action_id)
+   );`,
 ];
 
 export interface UsageRecord {
@@ -102,6 +139,11 @@ export class Store {
         throw error;
       }
     }
+  }
+
+  /** The raw connection, for repositories in other layers (plans). Prefer a repository over ad-hoc SQL. */
+  database(): DatabaseSync {
+    return this.db;
   }
 
   close(): void {
