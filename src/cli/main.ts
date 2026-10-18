@@ -18,6 +18,7 @@ import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerStyleCommands } from "./style-commands.js";
 import { registerRunCommands } from "./run-commands.js";
+import { registerTacticCommands } from "./tactic-commands.js";
 import { registerToolCommands } from "./tool-commands.js";
 import { guarded, LEDGER_FILE, STORE_FILE, workspaceDirOrThrow } from "./util.js";
 import { readSecret } from "./secret-input.js";
@@ -237,6 +238,7 @@ export function buildProgram(): Command {
   registerToolCommands(program);
   registerRunCommands(program);
   registerAnalysisCommands(program);
+  registerTacticCommands(program);
 
   return program;
 }

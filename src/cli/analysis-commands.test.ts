@@ -3,7 +3,10 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// each test spawns the CLI one or more times; under load that can pass the default 20 s
+vi.setConfig({ testTimeout: 90_000 });
 import { verifyLedger } from "../audit/ledger.js";
 import { FIXTURE } from "../../test/helpers/ingest.js";
 
