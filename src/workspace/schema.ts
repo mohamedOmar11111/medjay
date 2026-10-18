@@ -7,6 +7,7 @@ import { SLOT_NAMES } from "../constants.js";
 import { ENV_REF_PATTERN, KEYCHAIN_REF_PATTERN } from "../models/credentials.js";
 import { ModelsSchema } from "../models/slots.js";
 import { BUSINESS_TYPES, type BusinessType } from "../pillars/catalog.js";
+import { StyleConfigSchema } from "../style/config.js";
 
 export { BUSINESS_TYPES, type BusinessType };
 export const SCHEMA_VERSION = "1.0.0";
@@ -153,6 +154,7 @@ export const WorkspaceSchema = z
       .strict()
       .prefault({}),
     command_bridge: z.object({ whatsapp: WhatsApp.prefault({}) }).strict().prefault({}),
+    style: StyleConfigSchema.prefault({}),
     vault: z
       .object({
         promotion: z.enum(["off", "ask", "allow"]).default("off"),

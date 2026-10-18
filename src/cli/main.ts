@@ -15,6 +15,7 @@ import { migrateWorkspaceFile } from "../workspace/migrate.js";
 import { formatDoctor } from "./format.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
+import { registerStyleCommands } from "./style-commands.js";
 import { guarded, LEDGER_FILE, STORE_FILE, workspaceDirOrThrow } from "./util.js";
 import { readSecret } from "./secret-input.js";
 
@@ -228,6 +229,7 @@ export function buildProgram(): Command {
 
   registerPlanCommands(program);
   registerShieldCommands(program);
+  registerStyleCommands(program);
 
   return program;
 }

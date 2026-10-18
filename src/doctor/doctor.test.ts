@@ -99,7 +99,7 @@ describe("runDoctor: basics", () => {
     const report = await run();
     expect(report.checks.filter((c) => c.status === "fail")).toEqual([]);
     expect(report.ok).toBe(true);
-    for (const id of ["node", "keychain", "workspace", "credentials", "endpoints", "dropzone", "store", "ledger"]) {
+    for (const id of ["node", "keychain", "workspace", "credentials", "endpoints", "dropzone", "style", "store", "ledger"]) {
       expect(byId(report.checks, id).status, id).toBe("pass");
     }
   });
@@ -267,6 +267,22 @@ describe("runDoctor: local endpoints and models", () => {
     });
     const check = byId((await run({}, { "http://localhost:11434/v1/health/models": ollamaModels("qwen2.5") })).checks, "endpoints");
     expect(check.status).toBe("pass");
+  });
+});
+
+describe("runDoctor: style", () => {
+  it("summarizes caveman levels, forbidden phrases and the claim register", async () => {
+    const check = byId((await run()).checks, "style");
+    expect(check.status).toBe("pass");
+    expect(check.detail).toMatch(/caveman internal=full, whatsapp=lite/);
+    expect(check.detail).toMatch(/0 claims/);
+  });
+
+  it("fails on a broken claim register with the path of the problem", async () => {
+    await writeFile(join(ws, "context", "claims.md"), ["---", "claims:", "  - id: bad", "---", ""].join("\n"));
+    const check = byId((await run()).checks, "style");
+    expect(check.status).toBe("fail");
+    expect(check.detail).toMatch(/claims\[0\]/);
   });
 });
 

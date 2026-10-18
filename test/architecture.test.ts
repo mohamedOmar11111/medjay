@@ -15,11 +15,12 @@ const ALLOWED: Record<string, string[]> = {
   pillars: ["shared"],
   shield: ["shared"],
   store: ["shared"],
+  style: ["shared"],
   plan: ["shield", "store", "audit", "models", "shared"],
-  workspace: ["models", "audit", "pillars", "shield", "shared"],
-  doctor: ["workspace", "models", "audit", "pillars", "store", "shared"],
-  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "shared", "root"],
-  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "shared"],
+  workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
+  doctor: ["workspace", "models", "audit", "pillars", "store", "style", "shared"],
+  cli: ["doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "shared", "root"],
+  root: ["cli", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {

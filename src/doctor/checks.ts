@@ -9,12 +9,13 @@ import { CredentialResolver, probeKeystore, type CredentialRef, type KeyStore } 
 import { resolveSlot, SLOT_NAMES, type ResolvedTarget } from "../models/slots.js";
 import { isStubbed, pillarById } from "../pillars/catalog.js";
 import { Store } from "../store/db.js";
+import { loadStyleContext, StyleContextError } from "../style/context.js";
 import { findWorkspace, loadWorkspace, WorkspaceError, type LoadedWorkspace } from "../workspace/load.js";
 
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 
 export interface DoctorCheck {
-  id: "node" | "keychain" | "workspace" | "pillars" | "credentials" | "endpoints" | "models" | "dropzone" | "store" | "ledger";
+  id: "node" | "keychain" | "workspace" | "pillars" | "credentials" | "endpoints" | "models" | "dropzone" | "style" | "store" | "ledger";
   name: string;
   status: CheckStatus;
   detail: string;
@@ -277,6 +278,25 @@ async function checkDropzone(loaded: LoadedWorkspace): Promise<DoctorCheck> {
     : check("dropzone", "Dropzone", "warn", `${shown} does not exist yet`, `Create it (mkdir ${shown}) and drop exports there`);
 }
 
+async function checkStyle(loaded: LoadedWorkspace): Promise<DoctorCheck> {
+  const style = loaded.config.style;
+  try {
+    const ctx = await loadStyleContext(loaded.dir);
+    const claims = ctx.claims ? `${ctx.claims.claims.length} claims (${ctx.claims.claims.filter((c) => c.status === "verified").length} verified)` : "no claim register (numbers are not checked)";
+    return check(
+      "style",
+      "Style",
+      "pass",
+      `caveman internal=${style.caveman.internal}, whatsapp=${style.caveman.whatsapp}; slop fails on ${style.slop.fail_on}; ${ctx.forbiddenPhrases.length + style.slop.extra_banned.length} forbidden phrases; ${claims}`,
+    );
+  } catch (error) {
+    if (error instanceof StyleContextError) {
+      return check("style", "Style", "fail", [error.message.split("\n")[0], ...error.issues.slice(0, 6).map((i) => `${i.path || "(root)"}: ${i.message}`)].join("; "), "Fix the frontmatter in context/brand-voice.md or context/claims.md");
+    }
+    throw error;
+  }
+}
+
 function checkStore(dir: string): DoctorCheck {
   try {
     const store = Store.open(join(dir, ".medjay", "experiments.db"));
@@ -313,6 +333,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     checks.push(await checkEndpoints(loaded, options));
     checks.push(await checkModels(loaded, options.catalog ?? new ModelCatalog()));
     checks.push(await checkDropzone(loaded));
+    checks.push(await checkStyle(loaded));
   } else {
     checks.push(
       skipped("pillars", "Pillars"),
@@ -320,6 +341,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
       skipped("endpoints", "Endpoints"),
       skipped("models", "Model ids"),
       skipped("dropzone", "Dropzone"),
+      skipped("style", "Style"),
     );
   }
   checks.push(dir ? checkStore(dir) : skipped("store", "Machine-state DB"));

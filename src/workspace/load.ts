@@ -34,6 +34,9 @@ function hintForUnknownKey(key: string, parentPath: string): string {
   if (parentPath === "" && key === "paths") {
     return "paths are fixed by convention (ledger, database, policy, plans); only ingestion.dropzone_dir is configurable";
   }
+  if (["client_copy", "approval", "security"].includes(key)) {
+    return "client copy, approval prompts and security/spend warnings are always plain full sentences and cannot be made terse";
+  }
   if (key === "display_currencies") {
     return "removed: Medjay performs no silent currency conversion; keep base_currency only (dated FX tables belong in context/unit-economics.md)";
   }

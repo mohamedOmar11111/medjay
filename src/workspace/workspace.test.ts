@@ -45,6 +45,7 @@ describe("initWorkspace (schema 1.0.0)", () => {
       "context/unit-economics.md",
       "context/offer-matrix.md",
       "context/seasonal-calendar.md",
+      "context/claims.md",
       "tactics",
       "data/imports",
       "plans",
@@ -186,6 +187,17 @@ describe("loadWorkspace", () => {
     });
     const messages = (await issuesOf(dir)).map((i) => i.message).join(" | ");
     expect(messages).toMatch(/engine invariant/i);
+  });
+
+  it("defaults the style block and refuses to make client copy or approvals terse", async () => {
+    const dir = await make();
+    const { config } = await loadWorkspace(dir);
+    expect(config.style.caveman).toEqual({ internal: "full", whatsapp: "lite" });
+    expect(config.style.slop.fail_on).toBe("error");
+    await edit(dir, (c) => {
+      c.style.caveman.client_copy = "ultra";
+    });
+    expect((await issuesOf(dir)).map((i) => i.message).join(" | ")).toMatch(/always plain/i);
   });
 
   it("explains that paths are fixed by convention", async () => {
