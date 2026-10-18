@@ -1,6 +1,9 @@
 ---
 id: TACTIC-ETL-001
 title: Pause ad sets with spend but no CRM deal after five active days
+pillars:
+  - 6
+funnel_stage: conversion
 matches:
   - bleeding_adset
 source:

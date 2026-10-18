@@ -5,6 +5,9 @@
 // validated tactic without attached data.
 import { z } from "zod";
 
+export const FUNNEL_STAGES = ["awareness", "consideration", "conversion", "retention"] as const;
+export type FunnelStage = (typeof FUNNEL_STAGES)[number];
+
 export const TACTIC_STATES = ["unverified", "hypothesized", "validated", "invalidated", "retired"] as const;
 export type TacticState = (typeof TACTIC_STATES)[number];
 
@@ -53,6 +56,22 @@ export const ResultSchema = z
   })
   .strict();
 
+/** What a tactic validated in ANOTHER workspace showed, in bands. A prior suggests; it never validates. */
+export const PriorSchema = z
+  .object({
+    global_id: z.string().regex(/^GT-[0-9a-f]{12}$/),
+    effect_band: z.string().min(1).max(40),
+    confidence_band: z.string().min(1).max(40),
+    sample_band: z.string().min(1).max(40),
+    method: z.enum(["bayesian", "frequentist"]),
+    outcome_source: z.enum(["crm", "ga4", "platform_proxy"]),
+    grading: z.enum(["outcome", "proxy"]),
+    period: z.string().regex(/^\d{4}-Q[1-4]$/),
+    metric: z.string().min(1).max(80),
+  })
+  .strict();
+export type Prior = z.infer<typeof PriorSchema>;
+
 export const TacticSchema = z
   .object({
     id: Id,
@@ -61,6 +80,8 @@ export const TacticSchema = z
     jobs: z.array(z.string().min(1).max(40)).default([]),
     /** Finding kinds from `mdj diagnose` this tactic is a response to (for example bleeding_adset). */
     matches: z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).default([]),
+    funnel_stage: z.enum(FUNNEL_STAGES).optional(),
+    prior: PriorSchema.optional(),
     source: SourceSchema,
     state: z.enum(TACTIC_STATES),
     evidence_scope: z.enum(["workspace", "vault_prior"]).default("workspace"),
@@ -92,6 +113,10 @@ export const TacticSchema = z
         need(t.result !== undefined, "result", "only a validated tactic can be retired, so its result stays attached");
         need(t.retired !== undefined, "retired", "a retired tactic records why and when");
         break;
+    }
+    if (t.evidence_scope === "vault_prior") {
+      need(t.prior !== undefined, "prior", "a vault_prior tactic must carry its prior (the bands it was promoted with)");
+      need(t.state === "unverified", "state", "a tactic pulled from the vault stays unverified until it is tested in this workspace");
     }
     if (t.state !== "retired") need(t.retired === undefined, "retired", "only a retired tactic has retirement details");
   });

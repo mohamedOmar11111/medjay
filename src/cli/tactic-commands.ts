@@ -43,8 +43,8 @@ function summary(t: Tactic): string {
   return lines.join("\n");
 }
 
-export function registerTacticCommands(program: Command): void {
-  const tactic = program.command("tactic").description("the Tested-Tactics Log: unverified, hypothesized (bound to an experiment), validated or invalidated");
+export function registerTacticCommands(program: Command): Command {
+  const tactic = program.command("tactic").alias("tactics").description("the Tested-Tactics Log: unverified, hypothesized (bound to an experiment), validated or invalidated");
   const ws = (c: Command) => c.option("--workspace <dir>", "workspace folder");
 
   ws(tactic.command("list").description("list tactics by state").addOption(new Option("--state <state>", "only this state").choices(TACTIC_STATES))).action((opts: { state?: TacticState; workspace?: string }) =>
@@ -185,5 +185,5 @@ export function registerTacticCommands(program: Command): void {
       return problems.length ? 1 : 0;
     }),
   );
+  return tactic;
 }
-

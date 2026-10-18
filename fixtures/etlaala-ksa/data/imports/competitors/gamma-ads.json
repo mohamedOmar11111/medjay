@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "page_name": "Gamma Tours",
+      "ad_creative_link_titles": [
+        "Umrah from SAR 4,500"
+      ],
+      "ad_creative_bodies": [
+        "Licensed agency. Message us on WhatsApp."
+      ],
+      "call_to_action_type": "WHATSAPP_MESSAGE"
+    },
+    {
+      "page_name": "Gamma Tours",
+      "ad_creative_link_titles": [
+        "Umrah from SAR 4,500"
+      ],
+      "ad_creative_bodies": [
+        "Hotels near the Haram. Book today."
+      ],
+      "call_to_action_type": "BOOK_NOW"
+    },
+    {
+      "page_name": "Gamma Tours",
+      "ad_creative_bodies": [
+        "Ask us anything."
+      ],
+      "call_to_action_type": "WHATSAPP_MESSAGE"
+    }
+  ]
+}

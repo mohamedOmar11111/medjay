@@ -35,7 +35,8 @@ export function hypothesize(tactic: Tactic, experiment: ExperimentInput): Tactic
   const parsed = ExperimentSchema.safeParse(experiment);
   if (!parsed.success) throw new TacticError(`the experiment for ${tactic.id} is incomplete`, issuesOf(parsed.error));
   validDays(parsed.data.baseline.range);
-  return TacticSchema.parse({ ...tactic, state: "hypothesized", experiment: parsed.data });
+  // once it has its own pre-registered test it is a workspace tactic; the prior it came with stays as history
+  return TacticSchema.parse({ ...tactic, evidence_scope: "workspace", state: "hypothesized", experiment: parsed.data });
 }
 
 export type ConcludeOutcome =
