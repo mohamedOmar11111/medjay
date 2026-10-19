@@ -1,15 +1,19 @@
 // Answering a marketer's question: run the right read-only analysis through the CLI (as a child
 // process, with --json), then turn the result into plain words. Nothing here can change a platform:
 // the only commands used are scout, diagnose, simulate, ledger verify and the agent's `run`.
+import { join } from "node:path";
 import type { Diagnosis } from "../analysis/diagnose.js";
 import type { Snapshot } from "../analysis/scout.js";
 import type { SimulationResult } from "../analysis/simulate.js";
-import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noModelAnswer, performanceAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
+import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, noModelAnswer, performanceAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
 import type { Runner } from "./runner.js";
 
-export const DROPZONE_LABEL = "data/imports";
+/** Where exports go by default. A workspace can point elsewhere in workspace.yaml; this is only for wording. */
+export const dropzoneOf = (workspaceDir: string): string => join(workspaceDir, "data", "imports");
+
+const NO_DATA_ERROR = /no ingestion.mappings.yaml|no spend to simulate|could not be matched automatically|no CSV files found/;
 export const DEFAULT_SCALE_PCT = 20;
 
 export interface AskContext {
@@ -60,18 +64,19 @@ const mappingNote = (c: Collected, lang: Language): string[] =>
 /** Answer a recognized question. */
 export async function answerIntent(routed: Routed, ctx: AskContext): Promise<Reply> {
   const { lang, workspaceDir: dir, dash } = ctx;
-  const failed = (c: Collected): Reply => reply(errorAnswer(lang, firstLine(c)), lang);
+  const dropzone = dropzoneOf(dir);
+  const failed = (c: Collected): Reply => (NO_DATA_ERROR.test(`${c.err}${c.out}`) ? reply(noDataAnswer(lang, dropzone), lang) : reply(errorAnswer(lang, firstLine(c)), lang));
   const intent: IntentName = routed.intent;
   switch (intent) {
     case "performance": {
       const c = await collect(ctx, ["scout", "--json", "--workspace", dir]);
       const data = json<{ snapshot: Snapshot }>(c);
-      return data ? reply(performanceAnswer(data.snapshot, lang, DROPZONE_LABEL), lang, mappingNote(c, lang)) : failed(c);
+      return data ? reply(performanceAnswer(data.snapshot, lang, dropzone), lang, mappingNote(c, lang)) : failed(c);
     }
     case "waste": {
       const c = await collect(ctx, ["diagnose", "--json", "--workspace", dir]);
       const data = json<Diagnosis>(c);
-      return data ? reply(wasteAnswer(data, lang, DROPZONE_LABEL), lang, mappingNote(c, lang)) : failed(c);
+      return data ? reply(wasteAnswer(data, lang, dropzone), lang, mappingNote(c, lang)) : failed(c);
     }
     case "scale": {
       const pct = routed.params.pct ?? DEFAULT_SCALE_PCT;
@@ -82,7 +87,7 @@ export async function answerIntent(routed: Routed, ctx: AskContext): Promise<Rep
     case "plans":
       return reply(plansAnswer(dash, lang), lang);
     case "data":
-      return reply(dataAnswer(dash, lang, DROPZONE_LABEL), lang);
+      return reply(dataAnswer(dash, lang, dropzone), lang);
     case "trust": {
       const c = await collect(ctx, ["ledger", "verify", "--workspace", dir]);
       return reply(trustAnswer(`${c.out}${c.err}`, lang), lang);

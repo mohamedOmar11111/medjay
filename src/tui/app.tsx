@@ -278,6 +278,9 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
       if (text.startsWith("/")) return runShortcut(text);
       const lang: Language = hasLetters(text) ? detectLanguage(text) : langRef.current;
       langRef.current = lang;
+      if (/^[1-9]$/.test(toLatinDigits(text)) && suggestions.current.length > 0 && suggestions.current[Number(toLatinDigits(text)) - 1] === undefined) {
+        return void add("info", pick(lang)(`Pick a number from 1 to ${suggestions.current.length}, or just ask in your own words.`, `اختر رقماً من 1 إلى ${suggestions.current.length}، أو اسأل بكلامك.`));
+      }
       const pickedNumber = /^[1-9]$/.test(toLatinDigits(text)) ? suggestions.current[Number(toLatinDigits(text)) - 1] : undefined;
       const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : routeIntent(text);
       if (running.current) return void add("err", pick(lang)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));

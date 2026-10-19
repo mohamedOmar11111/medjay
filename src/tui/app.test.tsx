@@ -142,6 +142,14 @@ describe("asking in your own words", () => {
     t.unmount();
   });
 
+  it("a number outside the suggested list gets a hint, not an AI call", async () => {
+    const t = mount();
+    await t.send("9");
+    expect(t.calls).toHaveLength(0);
+    expect(t.frame()).toContain("Pick a number from 1 to");
+    t.unmount();
+  });
+
   it("answers what's waiting from the side panel data, without running anything", async () => {
     const t = mount();
     await t.send("what's waiting for me?");

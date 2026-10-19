@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { diagnose } from "../analysis/diagnose.js";
 import { scout } from "../analysis/scout.js";
@@ -79,6 +80,21 @@ describe("answerIntent runs only read-only analyses and speaks plainly", () => {
     const { ctx } = ctxWith(() => ({ err: "error: no workspace found here\n", code: 1 }));
     const r = await answerIntent({ intent: "performance", params: {} }, ctx);
     expect(r.text).toMatch(/^# I couldn't finish that\.\nerror: no workspace found here/);
+  });
+});
+
+describe("an empty workspace", () => {
+  it("says there is no data yet, with the folder to use, instead of a raw error, in both languages", async () => {
+    const err = "error: no ingestion.mappings.yaml in this workspace, and the exports in /ws/data/imports could not be matched automatically.\n";
+    for (const intent of ["performance", "waste", "scale"] as const) {
+      const { ctx } = ctxWith(() => ({ err, code: 1 }));
+      const r = await answerIntent({ intent, params: {} }, ctx);
+      expect(r.text, intent).toMatch(/^# I don.t have any ad numbers yet./);
+      expect(r.text).toContain(join("/ws", "data", "imports"));
+      expect(r.text).not.toContain("ingestion.mappings.yaml");
+    }
+    const { ctx: ar } = ctxWith(() => ({ err, code: 1 }), "ar");
+    expect((await answerIntent({ intent: "performance", params: {} }, ar)).text).toMatch(/^# ما عندي أرقام/);
   });
 });
 
