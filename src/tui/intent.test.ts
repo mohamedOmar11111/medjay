@@ -62,6 +62,10 @@ describe("routeIntent in English", () => {
 describe("routeIntent in Arabic (MSA, Gulf and Egyptian phrasing)", () => {
   const cases: [string, string][] = [
     ["كيف حال الإعلانات؟", "performance"],
+    ["إعلاناتي عامل إيه الأسبوع ده؟", "performance"],
+    ["الحملة ماشية ازاي", "performance"],
+    ["إيه اللي بيضيع الفلوس؟", "waste"],
+    ["ليه الاعلانات مش شغالة", "waste"],
     ["ايه نتايج الحملة النهاردة", "performance"],
     ["كم صرفت هذا الأسبوع", "performance"],
     ["كام صرفت الأسبوع ده", "performance"],
