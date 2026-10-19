@@ -84,7 +84,7 @@ describe("propose, strike, validate, verify, rollback", () => {
 
   it("verify compares an Editor export and a Meta observation file with the plan", async () => {
     const csv = join(root, "editor.csv");
-    await writeFile(csv, ["Campaign,Campaign Status,Budget,Keyword,Criterion Type", "Brand Search,Enabled,170,,", "Brand Search,,,free,Negative Broad"].join("\r\n"), "utf8");
+    await writeFile(csv, ["Campaign,Campaign Status,Budget,Keyword,Criterion Type", "Brand Search,Enabled,170,,", "Brand Search,,,free,Campaign Negative Broad"].join("\r\n"), "utf8");
     const partial = await mdj("verify", "1", "--observed", csv);
     expect(partial.code).toBe(1);
     expect(partial.stdout).toMatch(/NOT VERIFIED/);

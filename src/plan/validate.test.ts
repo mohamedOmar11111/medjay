@@ -132,6 +132,7 @@ describe("validateExport", () => {
       ["extra column", original.replace("Brand Search,,,,Paused,160", "Brand Search,,,,Paused,160,x"), /7 columns, expected 6/],
       ["bad budget", original.replace(",160\r\n", ",-5\r\n"), /Budget "-5"/],
       ["no BOM", original.slice(1), /byte order mark/],
+      ["ad-group-style type on a campaign-level row", original.replace("Campaign Negative", "Negative"), /campaign-level negative match type/],
     ];
     for (const [name, text, expected] of cases) {
       await writeFile(file, text, "utf8");

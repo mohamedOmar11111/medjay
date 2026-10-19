@@ -49,7 +49,7 @@ export function parseObservedJson(text: string): Observation[] {
   });
 }
 
-const MATCH: Record<string, "BROAD" | "PHRASE" | "EXACT"> = { "negative broad": "BROAD", "negative phrase": "PHRASE", "negative exact": "EXACT" };
+const MATCH: Record<string, "BROAD" | "PHRASE" | "EXACT"> = { "negative broad": "BROAD", "negative phrase": "PHRASE", "negative exact": "EXACT", "campaign negative broad": "BROAD", "campaign negative phrase": "PHRASE", "campaign negative exact": "EXACT" };
 
 /** Google Ads Editor's campaign and negative-keyword export (headers matched by name, any order). */
 export function parseEditorCsv(text: string): Observation[] {

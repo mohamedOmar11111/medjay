@@ -43,8 +43,8 @@ describe("Google Ads Editor CSV: Ad Group Status and Status (Removed) columns", 
     const { csv } = buildEditorCsv(compile([{ type: "remove_negative_keywords", target: campaign, terms: [{ text: "free", match: "BROAD" }, { text: "رخيص", match: "EXACT" }] }]).actions);
     expect(rows(csv)).toEqual([
       ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget", "Status"],
-      ["Brand Search", "", "free", "Negative Broad", "", "", "Removed"],
-      ["Brand Search", "", "رخيص", "Negative Exact", "", "", "Removed"],
+      ["Brand Search", "", "free", "Campaign Negative Broad", "", "", "Removed"],
+      ["Brand Search", "", "رخيص", "Campaign Negative Exact", "", "", "Removed"],
     ]);
   });
 
@@ -61,8 +61,8 @@ describe("Google Ads Editor CSV: Ad Group Status and Status (Removed) columns", 
       ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget", "Ad Group Status", "Status"],
       ["Brand Search", "", "", "", "", "90", "", ""],
       ["Brand Search", "g1", "", "", "", "", "Paused", ""],
-      ["Brand Search", "", "jobs", "Negative Phrase", "", "", "", ""],
-      ["Brand Search", "", "free", "Negative Broad", "", "", "", "Removed"],
+      ["Brand Search", "", "jobs", "Campaign Negative Phrase", "", "", "", ""],
+      ["Brand Search", "", "free", "Campaign Negative Broad", "", "", "", "Removed"],
     ]);
   });
 });
@@ -94,7 +94,7 @@ describe("validating the extended Editor CSV", () => {
     const check = async (text: string) => (await validateExport({ dir, plan })).issues.map((i) => i.message).join("\n");
     await writeFile(file, original.replace(",Removed", ",Deleted"), "utf8");
     expect(await check(original)).toMatch(/Status "Deleted" is not Removed/);
-    await writeFile(file, original.replace("free,Negative Broad,,,,Removed", ",Negative Broad,,,,Removed"), "utf8");
+    await writeFile(file, original.replace("free,Campaign Negative Broad,,,,Removed", ",Campaign Negative Broad,,,,Removed"), "utf8");
     expect(await check(original)).toMatch(/Status needs a Keyword|needs a Keyword/);
     await writeFile(file, original.replace("Brand Search,g1,,,,,Paused", "Brand Search,,,,,,Paused"), "utf8");
     expect(await check(original)).toMatch(/Ad Group Status needs an Ad Group/);

@@ -242,8 +242,8 @@ describe("strikePlan", () => {
     expect(lines).toEqual([
       "Campaign,Ad Group,Keyword,Criterion Type,Campaign Status,Budget",
       "Brand Search,,,,Paused,160",
-      "Brand Search,,free,Negative Broad,,",
-      "Brand Search,,jobs,Negative Phrase,,",
+      "Brand Search,,free,Campaign Negative Broad,,",
+      "Brand Search,,jobs,Campaign Negative Phrase,,",
     ]);
     const manifest = JSON.parse(await readFile(join(out, "manifest.json"), "utf8"));
     expect(manifest).toMatchObject({ plan_id: plan.plan_id, plan_hash: plan.plan_hash });

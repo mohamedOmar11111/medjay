@@ -113,7 +113,7 @@ What is enforced in code, and tested:
 
 Be honest with your clients about these:
 
-- **Google Ads Editor CSV.** The format follows Google's published column reference but has not been imported into a real account. Negative keywords are removed with `Status: Removed`. Campaign-level negatives are written with the `Criterion Type` values `Negative Broad|Phrase|Exact`; Google's reference mentions `Campaign negative` for campaign-level rows, so confirm this in a test account first.
+- **Google Ads Editor CSV.** The format follows Google's published column reference but has not been imported into a real account. Negative keywords are removed with `Status: Removed`. Campaign-level negatives (Ad Group empty) are written with `Criterion Type` `Campaign Negative Broad|Phrase|Exact`, which is the form Editor documents for them (ad-group negatives would use `Negative ...`; Medjay does not write those). Confirm in a test account first.
 - **Meta.** There is no bulk file, so mutations are exported as dry-run requests (`meta-mutations.json`, budgets in minor units from an explicit currency table). Nothing is ever sent.
 - **WhatsApp.** The Cloud API webhook and transport follow Meta's documented formats but have not run against a live number (the 24-hour window and template rules still apply). The Respond.io preset is an assumption. Any other CRM or relay works through configuration: you name the signature header and format and the field pointers.
 - **Live connectors** to ad platforms do not exist yet; `strike` writes files for a person to import.

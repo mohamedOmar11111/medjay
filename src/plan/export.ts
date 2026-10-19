@@ -85,7 +85,7 @@ export function buildMetaMutations(actions: CompiledAction[]): { requests: MetaR
 const needsConnector = (a: CompiledAction): boolean => a.executor === "mcp";
 
 const statusWord = (s: "ENABLED" | "PAUSED") => (s === "ENABLED" ? "Enabled" : "Paused");
-const matchWord = (m: "BROAD" | "PHRASE" | "EXACT") => `Negative ${m[0]}${m.slice(1).toLowerCase()}`;
+const matchWord = (m: "BROAD" | "PHRASE" | "EXACT") => `Campaign Negative ${m[0]}${m.slice(1).toLowerCase()}`;
 
 /** Build the Editor CSV from the Google actions that are safe to write; report the rest. */
 export function buildEditorCsv(actions: CompiledAction[]): { csv: string | null; written: string[]; problems: Map<string, string> } {

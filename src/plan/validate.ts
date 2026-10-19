@@ -29,7 +29,8 @@ export interface ExportValidation {
 }
 
 const STATUSES = new Set(["", "Enabled", "Paused"]);
-const CRITERIA = new Set(["", "Negative Broad", "Negative Phrase", "Negative Exact"]);
+// Editor wants "Campaign Negative ..." when Ad Group is empty and "Negative ..." when it is set; Medjay writes campaign level only.
+const CRITERIA = new Set(["", "Campaign Negative Broad", "Campaign Negative Phrase", "Campaign Negative Exact"]);
 const FORMULA_START = /^[=+\-@\t\r]/;
 
 const read = (path: string) => readFile(path).catch(() => undefined);
@@ -80,7 +81,7 @@ function checkEditorCsv(bytes: Buffer, plan: Plan, ids: string[]): ExportIssue[]
     if (campaign === "") add("Campaign is empty", row);
     if (!STATUSES.has(status)) add(`Campaign Status "${status}" is not Enabled or Paused`, row);
     if (!STATUSES.has(adGroupStatus)) add(`Ad Group Status "${adGroupStatus}" is not Enabled or Paused`, row);
-    if (!CRITERIA.has(criterion)) add(`Criterion Type "${criterion}" is not a negative match type`, row);
+    if (!CRITERIA.has(criterion)) add(`Criterion Type "${criterion}" is not a campaign-level negative match type (Campaign Negative Broad, Phrase or Exact)`, row);
     if (budget !== "" && !(/^\d+(\.\d{1,2})?$/.test(budget) && Number(budget) > 0)) add(`Budget "${budget}" is not a positive amount with at most 2 decimals`, row);
     if (itemStatus !== "" && itemStatus !== "Removed") add(`Status "${itemStatus}" is not Removed (Medjay only removes negative keywords at item level)`, row);
     if (adGroupStatus !== "" && adGroup === "") add("Ad Group Status needs an Ad Group", row);
