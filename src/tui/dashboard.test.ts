@@ -69,13 +69,13 @@ describe("sidebarLines", () => {
 
   it("shows plans waiting, the gate, per-source freshness, spend against the cap and the ledger head", () => {
     const t = text(base(), new Date("2026-10-19T00:00:00Z"));
-    expect(t).toEqual(expect.arrayContaining(["Etlaala KSA", "etl · SAR", "1 waiting · 2 total", "#1 proposed (expired)", "#2 struck", "scale needs P(>0) ≥ 60%", "✓ meta_ads 1d", "✗ ga4 9d (2 err)", "3,840 SAR/day avg", "cap 4,500/day: 85%", "#12 a1b2c3d4"]));
+    expect(t).toEqual(expect.arrayContaining(["Etlaala KSA", "etl · SAR", "1 waiting · 2 total", "#1 proposed (expired)", "#2 struck", "scale needs P(>0) ≥ 60%", "✓ Meta Ads 1d", "✗ Website analytics 9d (2 err)", "3,840 SAR/day avg", "cap 4,500/day: 85%", "#12 a1b2c3d4"]));
   });
 
   it("marks a stale or failing source and a cap near its limit as warnings", () => {
     const lines = sidebarLines({ ...base(), data: { ...base().data, avgDaily: 4400 } });
     expect(lines.find((l) => l.text.startsWith("cap"))!.tone).toBe("warn");
-    expect(lines.find((l) => l.text.startsWith("✗ ga4"))!.tone).toBe("warn");
+    expect(lines.find((l) => l.text.startsWith("✗ Website analytics"))!.tone).toBe("warn");
   });
 
   it("does not compare a cap in another currency", () => {

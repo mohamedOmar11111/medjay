@@ -9,6 +9,7 @@ import { PlanRepo } from "../plan/repo.js";
 import { loadPolicy } from "../shield/policy.js";
 import { Store } from "../store/db.js";
 import { loadWorkspace } from "../workspace/load.js";
+import { sourceName } from "./answers.js";
 
 const LEDGER_FILE = join(".medjay", "audit-log.jsonl");
 const STORE_FILE = join(".medjay", "experiments.db");
@@ -121,7 +122,7 @@ export function sidebarLines(d: Dashboard, now: Date = new Date()): PanelLine[] 
   else if (d.data.status === "none") line("no ad data ingested", "warn");
   else {
     line(`${d.data.period!.start} → ${d.data.period!.end}`, "dim");
-    for (const s of d.data.sources) line(`${s.stale ? "✗" : "✓"} ${s.id}${s.ageDays === null ? "" : ` ${s.ageDays}d`}${s.errors > 0 ? ` (${s.errors} err)` : ""}`, s.stale || s.errors > 0 ? "warn" : "normal");
+    for (const s of d.data.sources) line(`${s.stale ? "✗" : "✓"} ${sourceName(s.id, "en")}${s.ageDays === null ? "" : ` ${s.ageDays}d`}${s.errors > 0 ? ` (${s.errors} err)` : ""}`, s.stale || s.errors > 0 ? "warn" : "normal");
   }
   head("");
   head("SPEND");
