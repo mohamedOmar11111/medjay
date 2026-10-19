@@ -34,6 +34,8 @@ mdj scout --workspace my-client       # ingest, normalize, calibrate against CRM
 mdj diagnose --workspace my-client    # top anomalies, each with source file and date
 mdj simulate --workspace my-client --scale-pct 15   # seeded funnel math from context/unit-economics.md
 mdj shadow-scout --workspace my-client              # competitor offers from saved pages
+mdj media list                                       # 20 read-only media-buyer rules over exported CSVs
+mdj media run fatigue-call ads.csv --workspace my-client
 ```
 
 From a finding to a change:

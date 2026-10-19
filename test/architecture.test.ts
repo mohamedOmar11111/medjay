@@ -14,6 +14,7 @@ const ALLOWED: Record<string, string[]> = {
   models: ["shared"],
   ingest: ["store", "audit", "shared"],
   tactics: ["shared"],
+  media: ["ingest", "shared"],
   shadow: ["ingest", "runtime", "shared"],
   vault: ["tactics", "audit", "ingest", "shared"],
   demo: ["bridge", "analysis", "ingest", "plan", "shield", "store", "audit", "tactics", "workspace", "models", "shared"],
@@ -27,8 +28,8 @@ const ALLOWED: Record<string, string[]> = {
   runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
-  cli: ["shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
-  root: ["cli", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
+  cli: ["media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  root: ["cli", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {

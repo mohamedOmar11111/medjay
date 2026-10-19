@@ -16,6 +16,7 @@ import { formatDoctor } from "./format.js";
 import { registerAnalysisCommands } from "./analysis-commands.js";
 import { registerBridgeCommands } from "./bridge-commands.js";
 import { registerDemoCommands } from "./demo-commands.js";
+import { registerMediaCommands } from "./media-commands.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerShadowCommands } from "./shadow-commands.js";
@@ -243,6 +244,7 @@ export function buildProgram(): Command {
   registerRunCommands(program);
   registerAnalysisCommands(program);
   registerVaultCommands(registerTacticCommands(program));
+  registerMediaCommands(program);
   registerBridgeCommands(program);
   registerShadowCommands(program);
   registerDemoCommands(program);
