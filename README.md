@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/logo-mark.svg" width="140" alt="Medjay Logo" /></p>
+<p align="center"><img src="docs/assets/logo-mark.jpg" width="280" alt="Medjay Logo" /></p>
 
 # Medjay (`mdj`)
 
