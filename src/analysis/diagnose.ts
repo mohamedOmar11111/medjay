@@ -36,6 +36,8 @@ export interface Evidence {
 
 export interface Finding {
   id: string;
+  /** What the finding is about, so a reader can name it without parsing the title. */
+  subject?: { platform?: string; adset?: string; campaign?: string; source?: string };
   kind: "bleeding_adset" | "over_attribution" | "mer_vs_roas" | "low_match_rate" | "slow_first_response" | "conversation_drop_off" | "instruction_like_text" | "stale_data";
   category: Category;
   severity: Severity;
@@ -83,6 +85,7 @@ function bleeding(snapshot: Snapshot): Draft[] {
       const crm = sourceFor(snapshot, null, "crm");
       return {
         id: `bleeding_adset:${a.platform}:${slug(a.adset)}`,
+        subject: { platform: a.platform, adset: a.adset, campaign: a.campaign },
         kind: "bleeding_adset",
         category: "spend",
         severity: "high",
@@ -108,6 +111,7 @@ function overAttribution(snapshot: Snapshot): Draft[] {
     const crm = sourceFor(snapshot, null, "crm");
     out.push({
       id: `over_attribution:${p.platform}`,
+      subject: { platform: p.platform },
       kind: "over_attribution",
       category: "measurement",
       severity: p.calibration_ratio >= THRESHOLDS.calibrationHigh ? "high" : "medium",
@@ -128,6 +132,7 @@ function overAttribution(snapshot: Snapshot): Draft[] {
     if (r < THRESHOLDS.campaignCalibration) continue;
     out.push({
       id: `over_attribution:${a.platform}:${slug(a.campaign)}:${slug(a.adset)}`,
+      subject: { platform: a.platform, adset: a.adset, campaign: a.campaign },
       kind: "over_attribution",
       category: "measurement",
       severity: "high",
@@ -153,6 +158,7 @@ function merVsRoas(snapshot: Snapshot): Draft[] {
     .map(
       (p): Draft => ({
         id: `mer_vs_roas:${p.platform}`,
+        subject: { platform: p.platform },
         kind: "mer_vs_roas",
         category: "measurement",
         severity: "medium",
@@ -248,6 +254,7 @@ function dataQuality(snapshot: Snapshot): Draft[] {
   for (const s of snapshot.sources.filter((x) => x.stale)) {
     out.push({
       id: `stale_data:${slug(s.source_id)}`,
+      subject: { source: s.source_id },
       kind: "stale_data",
       category: "data",
       severity: s.kind === "web_analytics" ? "low" : "high",

@@ -95,8 +95,8 @@ export function sidebarLines(d: Dashboard, now: Date = new Date()): PanelLine[] 
   const head = (text: string) => out.push({ text, tone: "head" });
   const line = (text: string, tone: Tone = "normal") => out.push({ text, tone });
   if (d.workspace === null) {
-    line("no workspace", "warn");
-    line("mdj init <dir>", "dim");
+    line("no workspace yet", "warn");
+    line("setup questions are in the feed", "dim");
     return out;
   }
   head("WORKSPACE");

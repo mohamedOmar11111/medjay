@@ -1,18 +1,26 @@
-// The Medjay terminal app: header, activity feed, side panel and a prompt. It only chooses and shows;
-// every action runs through the CLI (see runner.ts), so Shield, policy and the ledger apply unchanged.
+// The Medjay terminal app: header, activity feed, side panel and a prompt. You ask in your own words
+// (English or Arabic); it picks the right read-only analysis, runs it through the CLI (see runner.ts,
+// so Shield, policy and the ledger apply unchanged) and answers in plain language. It never approves
+// or applies anything: that stays a typed action in a terminal.
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { answerIntent, askAgent, type AskContext, type Reply } from "./ask.js";
+import { helpAnswer, renderAnswer, type Suggestion } from "./answers.js";
 import { COMMANDS, parseInput, resolveInput } from "./commands.js";
 import { ledgerLabel, sidebarLines, emptyDashboard, type Dashboard, type PanelLine } from "./dashboard.js";
 import { buildFeedLines, splashText, type Entry, type EntryKind, type FeedTone } from "./feed.js";
+import { detectLanguage, routeIntent, toLatinDigits, type Language, type Routed } from "./intent.js";
+import { onboardingDone, startOnboarding, stepOnboarding, type OnboardState } from "./onboarding.js";
 import type { Runner, RunHandle } from "./runner.js";
 import { COMPACT_BANNER } from "./splash.js";
 import { lastWindow } from "./text.js";
 
 export interface AppProps {
   workspaceDir: string | null;
+  /** Folder new workspaces are created in (first-run setup). */
+  baseDir?: string;
   runner: Runner;
-  load: () => Promise<Dashboard>;
+  load: (dir: string) => Promise<Dashboard>;
   version: string;
   /** Terminal size override (tests); otherwise the real terminal is followed. */
   size?: { cols: number; rows: number };
@@ -22,6 +30,7 @@ export interface AppProps {
 const SIDEBAR_WIDTH = 30;
 const MIN_COLS_FOR_SIDEBAR = 80;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const THINKS: Routed["intent"][] = ["performance", "waste", "scale", "trust"];
 
 const FEED_COLOR: Record<FeedTone, { color?: string; dim?: boolean; bold?: boolean }> = {
   normal: {},
@@ -38,15 +47,20 @@ const PANEL_COLOR: Record<PanelLine["tone"], { color?: string; dim?: boolean; bo
   head: { dim: true, bold: true },
 };
 
-const helpText = (): string =>
+const pick = (lang: Language) => (en: string, ar: string) => (lang === "ar" ? ar : en);
+
+const shortcutsText = (): string =>
   [
-    "Plain text goes to the agent (read, draft and propose only; it cannot write to a platform).",
+    "Just ask in your own words, in English or Arabic. For example:",
+    "  How are my ads doing?   ·   What's wasting money?   ·   Can I raise spend by 20%?",
+    "  What's waiting for my approval?   ·   Is my data up to date?",
     "",
-    ...COMMANDS.flatMap((c) => [c.usage, `      ${c.summary}`]),
+    "Shortcuts (optional):",
+    ...COMMANDS.flatMap((c) => [`  ${c.usage}`, `        ${c.summary}`]),
     "",
-    "Keys: Enter send · Tab complete · ↑/↓ history · PgUp/PgDn scroll",
-    "      Esc cancel a running command · Ctrl+L clear · Ctrl+C quit",
-    "Approving, striking and rolling back stay in the terminal:",
+    "Keys: Enter send · Tab complete a shortcut · ↑/↓ earlier questions · PgUp/PgDn scroll",
+    "      Esc stop what I'm doing · Ctrl+L clear · Ctrl+C quit",
+    "Approving and applying plans stays in a terminal, on purpose:",
     "      mdj approve <n> · mdj strike <n>",
   ].join("\n");
 
@@ -64,20 +78,39 @@ function useTerminalSize(override?: { cols: number; rows: number }): { cols: num
   return override ?? size;
 }
 
-export function App({ workspaceDir, runner, load, version, size: sizeOverride, onExit }: AppProps) {
+const hasLetters = (text: string) => /[A-Za-z؀-ۿ]/.test(text);
+
+export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit }: AppProps) {
   const { exit } = useApp();
   const { cols, rows } = useTerminalSize(sizeOverride);
-  const nextId = useRef(2);
-  const [entries, setEntries] = useState<Entry[]>([{ id: 1, kind: "splash", text: splashText() }]);
+  const nextId = useRef(10);
+  const [ws, setWsState] = useState<string | null>(workspaceDir);
+  const wsRef = useRef<string | null>(workspaceDir);
+  const setWs = (dir: string | null) => {
+    wsRef.current = dir;
+    setWsState(dir);
+  };
+  const langRef = useRef<Language>("en");
+  const suggestions = useRef<Suggestion[]>(workspaceDir ? helpAnswer("en", true).next : []);
+  const onboardRef = useRef<OnboardState | null>(null);
+  const [entries, setEntries] = useState<Entry[]>(() => {
+    const first: Entry = { id: 1, kind: "splash", text: splashText() };
+    if (workspaceDir) return [first, { id: 2, kind: "answer", text: renderAnswer(helpAnswer("en", true), "en") }];
+    const started = startOnboarding("en");
+    onboardRef.current = started.state;
+    return [first, { id: 2, kind: "out", text: `${started.say}\n\n${startOnboarding("ar").say}` }];
+  });
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyAt, setHistoryAt] = useState<number | null>(null);
   const [offset, setOffset] = useState(0);
   const [dash, setDash] = useState<Dashboard>(emptyDashboard);
+  const dashRef = useRef<Dashboard>(dash);
   const [busy, setBusy] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
   const cancelled = useRef(false);
+  const baseFolder = baseDir ?? process.cwd();
 
   const add = useCallback((kind: EntryKind, text: string): number => {
     const id = nextId.current++;
@@ -87,10 +120,20 @@ export function App({ workspaceDir, runner, load, version, size: sizeOverride, o
   }, []);
   const append = useCallback((id: number, text: string) => setEntries((all) => all.map((e) => (e.id === id ? { ...e, text: e.text + text } : e))), []);
 
-  const refresh = useCallback(() => {
-    if (workspaceDir === null) return Promise.resolve();
-    return load().then(setDash, () => undefined);
-  }, [load, workspaceDir]);
+  const refresh = useCallback(
+    async (dir: string | null = wsRef.current): Promise<Dashboard> => {
+      if (dir === null) return dashRef.current;
+      try {
+        const next = await load(dir);
+        dashRef.current = next;
+        setDash(next);
+        return next;
+      } catch {
+        return dashRef.current;
+      }
+    },
+    [load],
+  );
   useEffect(() => void refresh(), [refresh]);
 
   useEffect(() => {
@@ -112,42 +155,136 @@ export function App({ workspaceDir, runner, load, version, size: sizeOverride, o
     }
   }, []);
 
-  const start = useCallback(
-    (argv: string[], label: string) => {
-      const id = add("out", "");
-      cancelled.current = false;
-      setBusy(label);
-      const handle = runner(argv, (text) => append(id, text));
+  /** A runner that remembers the child it started, so Esc and quit can stop it. */
+  const tracked = useCallback<Runner>(
+    (argv, onChunk) => {
+      const handle = runner(argv, onChunk);
       running.current = handle;
-      void handle.done.then(({ code }) => {
-        running.current = null;
-        setBusy(null);
-        add(cancelled.current ? "info" : code === 0 ? "info" : "err", cancelled.current ? `${label} cancelled` : code === 0 ? `${label} done` : `${label} exited with code ${code}`);
-        void refresh();
-      });
+      return handle;
     },
-    [add, append, refresh, runner],
+    [runner],
   );
 
-  const submit = useCallback(
-    (raw: string) => {
-      const parsed = parseInput(raw);
-      const resolved = resolveInput(parsed, workspaceDir);
+  const showReply = useCallback(
+    (reply: Reply) => {
+      suggestions.current = reply.suggestions;
+      add("answer", reply.text);
+    },
+    [add],
+  );
+
+  /** One analysis or agent question, start to finish. */
+  const ask = useCallback(
+    (routed: Routed | null, text: string, lang: Language) => {
+      const dir = wsRef.current;
+      if (dir === null) return;
+      const thinking = routed === null || THINKS.includes(routed.intent);
+      cancelled.current = false;
+      if (thinking) {
+        setBusy(pick(lang)("looking", "أراجع"));
+        add("info", pick(lang)(routed === null ? "Thinking about that…" : "Looking at your numbers…", routed === null ? "أفكر في سؤالك…" : "أراجع أرقامك…"));
+      }
+      void (async () => {
+        try {
+          if (routed !== null && !THINKS.includes(routed.intent)) await refresh();
+          const ctx: AskContext = { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current };
+          const reply = routed === null ? await askAgent(text, ctx) : await answerIntent(routed, ctx);
+          if (routed?.intent === "language" && routed.params.language) langRef.current = routed.params.language;
+          if (cancelled.current) add("info", pick(lang)("Stopped.", "تم الإيقاف."));
+          else showReply(reply);
+        } catch (error) {
+          add("err", error instanceof Error ? error.message : String(error));
+        } finally {
+          running.current = null;
+          setBusy(null);
+          void refresh();
+        }
+      })();
+    },
+    [add, refresh, showReply, tracked],
+  );
+
+  /** First-run setup: collect answers, then run the init command through the CLI. */
+  const onboard = useCallback(
+    (text: string) => {
+      const state = onboardRef.current;
+      if (state === null) return;
+      const result = stepOnboarding(state, text, baseFolder);
+      onboardRef.current = result.state;
+      langRef.current = result.state.lang;
+      add("out", result.say);
+      if (!result.create) return;
+      const { dir, argv } = result.create;
+      let err = "";
+      cancelled.current = false;
+      setBusy(pick(result.state.lang)("setting up", "أجهّز"));
+      void tracked(argv, (chunk, stream) => {
+        if (stream === "err") err += chunk;
+      }).done.then(({ code }) => {
+        running.current = null;
+        setBusy(null);
+        const lang = result.state.lang;
+        if (code !== 0) {
+          onboardRef.current = { step: "name", lang };
+          add("err", `${pick(lang)("I couldn't create the workspace:", "ما قدرت أنشئ مساحة العمل:")} ${err.trim().split("\n")[0] ?? ""}\n${startOnboarding(lang).say}`);
+          return;
+        }
+        onboardRef.current = null;
+        setWs(dir);
+        const [head = "", ...rest] = onboardingDone(dir, lang).split("\n");
+        const next = helpAnswer(lang, false).next.filter((s) => s.intent === "performance" || s.intent === "data");
+        suggestions.current = next;
+        add("answer", renderAnswer({ headline: head, body: rest, next }, lang));
+        void refresh(dir);
+      });
+    },
+    [add, baseFolder, refresh, tracked],
+  );
+
+  const runShortcut = useCallback(
+    (text: string) => {
+      const resolved = resolveInput(parseInput(text), wsRef.current);
       if (resolved.kind === "none") return;
-      setHistory((h) => (h[h.length - 1] === raw.trim() ? h : [...h, raw.trim()]));
-      setHistoryAt(null);
-      add("user", raw.trim());
       if (resolved.kind === "error") return void add("err", resolved.message);
       if (resolved.kind === "local") {
         if (resolved.action === "quit") return quit();
         if (resolved.action === "clear") return void setEntries([]);
-        if (resolved.action === "help") return void add("out", helpText());
-        return void refresh().then(() => add("info", "side panel refreshed"));
+        if (resolved.action === "help") return void add("out", shortcutsText());
+        return void refresh().then(() => add("info", pick(langRef.current)("Side panel refreshed.", "تم تحديث اللوحة الجانبية.")));
       }
-      if (running.current) return void add("err", `${busy ?? "a command"} is still running; press Esc to cancel it first.`);
-      start(resolved.argv, resolved.label);
+      if (running.current) return void add("err", pick(langRef.current)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
+      const id = add("out", "");
+      cancelled.current = false;
+      setBusy(resolved.label);
+      const handle = tracked(resolved.argv, (chunk) => append(id, chunk));
+      void handle.done.then(({ code }) => {
+        running.current = null;
+        setBusy(null);
+        add(cancelled.current ? "info" : code === 0 ? "info" : "err", cancelled.current ? `${resolved.label} cancelled` : code === 0 ? `${resolved.label} done` : `${resolved.label} exited with code ${code}`);
+        void refresh();
+      });
     },
-    [add, busy, quit, refresh, start, workspaceDir],
+    [add, append, quit, refresh, tracked],
+  );
+
+  const submit = useCallback(
+    (raw: string) => {
+      const text = raw.trim();
+      if (text === "") return;
+      setHistory((h) => (h[h.length - 1] === text ? h : [...h, text]));
+      setHistoryAt(null);
+      add("user", text);
+      if (onboardRef.current !== null) return onboard(text);
+      if (text.startsWith("/")) return runShortcut(text);
+      const lang: Language = hasLetters(text) ? detectLanguage(text) : langRef.current;
+      langRef.current = lang;
+      const pickedNumber = /^[1-9]$/.test(toLatinDigits(text)) ? suggestions.current[Number(toLatinDigits(text)) - 1] : undefined;
+      const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : routeIntent(text);
+      if (running.current) return void add("err", pick(lang)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
+      if (wsRef.current === null) return void add("err", pick(lang)("There's no workspace yet.", "ما في مساحة عمل للحين."));
+      ask(routed, text, lang);
+    },
+    [add, ask, onboard, runShortcut],
   );
 
   const feedWidth = cols >= MIN_COLS_FOR_SIDEBAR ? cols - SIDEBAR_WIDTH - 6 : cols - 4;
@@ -192,12 +329,14 @@ export function App({ workspaceDir, runner, load, version, size: sizeOverride, o
     setInput((s) => s + typed.replace(/[\r\n]+/g, " "));
   });
 
+  const lang = langRef.current;
   const panelRows = bodyHeight - 2;
   const rawPanel = cols >= MIN_COLS_FOR_SIDEBAR ? sidebarLines(dash) : null;
   const sidebar = rawPanel === null ? null : (rawPanel.length > panelRows ? rawPanel.filter((l) => l.text !== "") : rawPanel).slice(0, panelRows);
-  const where = dash.workspace ? `${dash.workspace.name} · ${dash.workspace.currency}` : "no workspace";
+  const where = dash.workspace ? `${dash.workspace.name} · ${dash.workspace.currency}` : ws === null ? "setting up" : "";
   const scrolled = view.offset > 0 ? `↑ scrolled back ${view.offset} lines (${view.more} above) · PgDn returns` : null;
-  const status = [busy !== null ? `${SPINNER[tick % SPINNER.length]} running ${busy} · Esc cancels` : null, scrolled].filter(Boolean).join(" · ") || "/help for commands · PgUp/PgDn scroll";
+  const idle = onboardRef.current !== null ? pick(lang)("Answer the questions above · Ctrl+C quits", "جاوب على الأسئلة أعلاه · Ctrl+C للخروج") : pick(lang)("Ask me anything · type a number to pick a suggestion · / for shortcuts", "اسألني أي شي · اكتب رقم لاختيار اقتراح · / للاختصارات");
+  const status = [busy !== null ? `${SPINNER[tick % SPINNER.length]} ${busy} · Esc stops` : null, scrolled].filter(Boolean).join(" · ") || idle;
 
   return (
     <Box flexDirection="column" width={cols} height={rows}>

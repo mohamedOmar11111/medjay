@@ -8,14 +8,15 @@ export interface FeedLine {
   tone: FeedTone;
 }
 
-export type EntryKind = "splash" | "user" | "out" | "err" | "info";
+export type EntryKind = "splash" | "user" | "out" | "err" | "info" | "answer";
 export interface Entry {
   id: number;
   kind: EntryKind;
   text: string;
 }
 
-export const splashText = (): string => [...WORDMARK, "", TAGLINE, "", "Type a task for the agent, or / for commands. /help lists them."].join("\n");
+export const splashText = (): string =>
+  [...WORDMARK, "", TAGLINE, "", "Ask me anything about your ads, in English or Arabic. Type / for shortcuts.", "اسألني عن إعلاناتك بالعربي أو الإنجليزي. اكتب / للاختصارات."].join("\n");
 
 export function buildFeedLines(entries: Entry[], width: number): FeedLine[] {
   const out: FeedLine[] = [];
@@ -23,6 +24,12 @@ export function buildFeedLines(entries: Entry[], width: number): FeedLine[] {
     const text = entry.text.replace(/\s+$/, "");
     if (entry.kind === "splash") {
       text.split("\n").forEach((line, i) => (i < WORDMARK.length ? out.push({ text: line, tone: "accent" }) : wrapText(line, width).forEach((l) => out.push({ text: l, tone: "dim" }))));
+    } else if (entry.kind === "answer") {
+      // "# " marks the headline, "> " the what-next block, everything else is the body
+      for (const raw of text.split("\n")) {
+        const tone: FeedTone = raw.startsWith("# ") ? "accent" : raw.startsWith("> ") ? "dim" : "normal";
+        for (const l of wrapText(tone === "normal" ? raw : raw.slice(2), width)) out.push({ text: l, tone });
+      }
     } else if (entry.kind === "user") {
       for (const l of wrapText(`❯ ${text}`, width)) out.push({ text: l, tone: "user" });
     } else {

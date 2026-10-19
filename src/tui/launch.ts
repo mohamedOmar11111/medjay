@@ -36,7 +36,7 @@ export async function launch(options: { workspace?: string } = {}): Promise<void
   for (const sig of ["SIGTERM", "SIGHUP"] as const) process.once(sig, () => (leave(), process.exit(143)));
   try {
     const app = render(
-      createElement(App, { workspaceDir, runner, version: VERSION, load: () => loadDashboard(workspaceDir ?? process.cwd()) }),
+      createElement(App, { workspaceDir, baseDir: process.cwd(), runner, version: VERSION, load: (dir: string) => loadDashboard(dir) }),
       { exitOnCtrlC: false },
     );
     await app.waitUntilExit();

@@ -36,7 +36,7 @@ mdj scout --workspace my-client       # ingest, normalize, calibrate against CRM
 mdj diagnose --workspace my-client    # top anomalies, each with source file and date
 mdj simulate --workspace my-client --scale-pct 15   # seeded funnel math from context/unit-economics.md
 mdj shadow-scout --workspace my-client              # competitor offers from saved pages
-mdj                                                  # open the interactive terminal app (needs a terminal)
+mdj                                                  # open the terminal app: ask in plain English or Arabic (needs a terminal)
 mdj media list                                       # 20 read-only media-buyer rules over exported CSVs
 mdj media run fatigue-call ads.csv --workspace my-client
 ```

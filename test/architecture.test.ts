@@ -15,7 +15,7 @@ const ALLOWED: Record<string, string[]> = {
   ingest: ["store", "audit", "shared"],
   tactics: ["shared"],
   media: ["ingest", "shared"],
-  tui: ["cli", "analysis", "ingest", "plan", "audit", "shield", "store", "workspace", "shared"],
+  tui: ["cli", "pillars", "analysis", "ingest", "plan", "audit", "shield", "store", "workspace", "shared"],
   shadow: ["ingest", "runtime", "shared"],
   vault: ["tactics", "audit", "ingest", "shared"],
   demo: ["bridge", "analysis", "ingest", "plan", "shield", "store", "audit", "tactics", "workspace", "models", "shared"],

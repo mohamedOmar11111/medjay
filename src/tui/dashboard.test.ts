@@ -84,7 +84,7 @@ describe("sidebarLines", () => {
   });
 
   it("says when there is no workspace, no plans, or the gate is off", () => {
-    expect(text(emptyDashboard())).toEqual(["no workspace", "mdj init <dir>"]);
+    expect(text(emptyDashboard())).toEqual(["no workspace yet", "setup questions are in the feed"]);
     const t = text({ ...base(), plans: [], gate: { required: false, minChance: 0.6 } });
     expect(t).toEqual(expect.arrayContaining(["none", "simulation not required"]));
   });

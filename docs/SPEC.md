@@ -700,6 +700,18 @@ Plain `mdj` in a terminal (or `mdj tui [--workspace dir]`) opens a full-screen I
 
 **Not in T1:** approving and striking from inside the app, agent output streamed step by step (the agent's result appears when the run ends), mouse support, themes, a session picker.
 
+### 30.18 Plain-language mode (T2, built 2026-10-19)
+
+The terminal app is now question-first for marketers. Plain text is routed by `src/tui/intent.ts`, a small pattern router (English, plus Arabic with spelling folding and Arabic-Indic digits) with ten intents: performance, waste, scale, plans, data, trust, approve, help, greet, language. A recognized question runs one read-only analysis through the CLI with `--json` (`scout`, `diagnose`, `simulate --scale-pct`, `ledger verify`; plans and data come from the side-panel read) and `src/tui/answers.ts` turns the result into an answer that leads with the money, says what to do and offers numbered next questions (type 1 to 6). No MER, percentile or calibration jargon reaches the screen. An unrecognized question goes to the agent (`mdj run`) with an instruction to answer for a marketer in plain words (Arabic when the question was Arabic); the run bookkeeping is stripped, and a missing model key becomes a plain explanation. A router miss never guesses.
+
+Language follows the question (a number keeps the last language; "arabic" or "english" switches). Commands, plan numbers and hashes stay ASCII in both languages. Findings now carry a `subject` (platform, ad set, campaign or source) so answers name things without parsing titles.
+
+First run with no workspace is a short conversation (name, business type, currency, confirm), then `mdj init` runs through the CLI and the app switches to the new workspace and says where to drop exports. The first-scout mapping auto-detect (30.16) then handles the files.
+
+Unchanged and tested: the app never approves, strikes, rolls back or applies anything. "Approve plan 1" in either language returns the terminal steps (`mdj diff N`, `mdj approve N`, `mdj strike N`).
+
+**Limits.** The Arabic wording was written for this app and has not been reviewed by a native-speaking marketer; terminals differ in how they shape and order Arabic text, which has not been checked visually. The router is deliberately narrow, so open questions need a model key. Scale questions default to a 20 percent increase unless a percentage is given.
+
 ## Appendix: glossary
 Plan: compiled, hashed set of proposed actions. Strike: execution of an approved plan. Shield: policy, breakers, audit. Sword: the active growth engine. Dropzone: `data/imports/`. Slot: fast / reasoning / creative. MER: marketing efficiency ratio (blended). POAS: profit on ad spend. Prior: cross-workspace evidence that suggests but does not validate a tactic locally. Customer Zero: the owner's own agency workspace.
 
