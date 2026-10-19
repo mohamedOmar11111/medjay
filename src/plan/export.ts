@@ -17,7 +17,7 @@ import type { CompiledAction, Plan, Term } from "./types.js";
 
 export const EDITOR_HEADERS = ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget"] as const;
 /** Written only when a plan needs them, after the base columns and in this order. */
-export const EDITOR_EXTRA_HEADERS = ["Ad Group Status", "Action"] as const;
+export const EDITOR_EXTRA_HEADERS = ["Ad Group Status", "Status"] as const;
 
 export interface ActionOutcome {
   action_id: string;
@@ -130,11 +130,11 @@ export function buildEditorCsv(actions: CompiledAction[]): { csv: string | null;
   }
 
   if (written.length === 0) return { csv: null, written, problems };
-  const extras = [...(adGroups.size > 0 ? ["Ad Group Status"] : []), ...(removes.length > 0 ? ["Action"] : [])];
-  const row = (campaign: string, adGroup: string, keyword: string, criterion: string, status: string, budget: string, adGroupStatus: string, action: string): string[] => {
+  const extras = [...(adGroups.size > 0 ? ["Ad Group Status"] : []), ...(removes.length > 0 ? ["Status"] : [])];
+  const row = (campaign: string, adGroup: string, keyword: string, criterion: string, status: string, budget: string, adGroupStatus: string, itemStatus: string): string[] => {
     const cells = [campaign, adGroup, keyword, criterion, status, budget];
     if (extras.includes("Ad Group Status")) cells.push(adGroupStatus);
-    if (extras.includes("Action")) cells.push(action);
+    if (extras.includes("Status")) cells.push(itemStatus);
     return cells;
   };
   const rows = [
@@ -142,7 +142,7 @@ export function buildEditorCsv(actions: CompiledAction[]): { csv: string | null;
     ...[...campaigns].map(([name, c]) => row(name, "", "", "", c.status ?? "", c.budget ?? "", "", "")),
     ...[...adGroups.values()].map((g) => row(g.campaign, g.name, "", "", "", "", g.status, "")),
     ...adds.map((n) => row(n.campaign, "", n.term.text, matchWord(n.term.match), "", "", "", "")),
-    ...removes.map((n) => row(n.campaign, "", n.term.text, matchWord(n.term.match), "", "", "", "Remove")),
+    ...removes.map((n) => row(n.campaign, "", n.term.text, matchWord(n.term.match), "", "", "", "Removed")),
   ];
   const csv = `﻿${rows.map((r) => r.map(csvField).join(",")).join("\r\n")}\r\n`;
   return { csv, written, problems };
@@ -257,7 +257,7 @@ export async function exportPlan(options: {
   }
 
   // Manual steps for everything that is not in the Editor CSV or a patch.
-  // removals are in the CSV AND listed here, so a person can confirm them by hand in case Editor ignores the Action column
+  // removals are in the CSV AND listed here, so a person can confirm them by hand in case Editor does not apply the Status column to a negative keyword
   const manual = plan.actions.filter((a) => (!isGoogle(a) || a.type === "remove_negative_keywords") && !isMetaMutation(a) && a.type !== "code_patch" && !needsConnector(a));
   const changes = [
     `# Changes for plan ${plan.plan_id}`,

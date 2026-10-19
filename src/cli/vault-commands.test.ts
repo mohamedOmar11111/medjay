@@ -10,11 +10,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verifyLedger } from "../audit/ledger.js";
 import { FIXTURE } from "../../test/helpers/ingest.js";
 
-vi.setConfig({ testTimeout: 120_000 });
+vi.setConfig({ testTimeout: 180_000 });
 
 const exec = promisify(execFile);
 const REPO = join(import.meta.dirname, "..", "..");
-const CLI = join(import.meta.dirname, "..", "cli.ts");
+const CLI = join(import.meta.dirname, "..", "..", "dist", "cli.js"); // built once by test/global-setup.ts
 let root: string;
 let a: string;
 let b: string;
@@ -22,7 +22,7 @@ let vault: string;
 
 async function mdj(workspace: string, ...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
-    const { stdout, stderr } = await exec(process.execPath, ["--import", "tsx", CLI, ...args, "--workspace", workspace], { cwd: REPO, timeout: 100_000 });
+    const { stdout, stderr } = await exec(process.execPath, [CLI, ...args, "--workspace", workspace], { cwd: REPO, timeout: 150_000 });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const e = error as { code?: number; stdout?: string; stderr?: string };
@@ -41,9 +41,9 @@ beforeAll(async () => {
   vault = join(root, "vault");
   a = join(root, "etlaala-ksa");
   b = join(root, "another-agency");
-  await exec(process.execPath, ["--import", "tsx", CLI, "init", a, "--id", "etlaala-ksa", "--name", "Etlaala KSA", "--timezone", "Asia/Riyadh", "--currency", "SAR", "--business-type", "agency"], { cwd: REPO });
+  await exec(process.execPath, [CLI, "init", a, "--id", "etlaala-ksa", "--name", "Etlaala KSA", "--timezone", "Asia/Riyadh", "--currency", "SAR", "--business-type", "agency"], { cwd: REPO });
   await cp(FIXTURE, a, { recursive: true, force: true });
-  await exec(process.execPath, ["--import", "tsx", CLI, "init", b, "--id", "another-agency", "--currency", "USD", "--business-type", "agency"], { cwd: REPO });
+  await exec(process.execPath, [CLI, "init", b, "--id", "another-agency", "--currency", "USD", "--business-type", "agency"], { cwd: REPO });
   await mdj(a, "scout", "--json"); // ingest, so the campaign names are known to the leak check
   // test the fixture tactic to a verdict
   await mdj(a, "tactic", "hypothesize", "TACTIC-ETL-001", "--experiment", "EXP-ETL-9", "--hypothesis", "Pausing ad sets with no CRM deal lowers cost per deal by at least 10%", "--metric", "cost_per_deal_sar", "--baseline-value", "960", "--baseline-range", "2026-10-10..2026-10-16", "--baseline-snapshot", "snap_9", "--design", "before_after", "--min-sample", "25", "--duration-days", "14", "--min-effect", "0.1");

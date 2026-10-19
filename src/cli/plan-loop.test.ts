@@ -10,18 +10,18 @@ import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verifyLedger } from "../audit/ledger.js";
 
-vi.setConfig({ testTimeout: 90_000 });
+vi.setConfig({ testTimeout: 180_000 });
 
 const exec = promisify(execFile);
 const REPO = join(import.meta.dirname, "..", "..");
-const CLI = join(import.meta.dirname, "..", "cli.ts");
+const CLI = join(import.meta.dirname, "..", "..", "dist", "cli.js"); // built once by test/global-setup.ts
 const KEY = Buffer.from(generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }) as string).toString("base64");
 let root: string;
 let dir: string;
 
 async function mdj(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
-    const { stdout, stderr } = await exec(process.execPath, ["--import", "tsx", CLI, ...args, "--workspace", dir], { cwd: REPO, timeout: 80_000, env: { ...process.env, MEDJAY_SIGNING_KEY: KEY } });
+    const { stdout, stderr } = await exec(process.execPath, [CLI, ...args, "--workspace", dir], { cwd: REPO, timeout: 150_000, env: { ...process.env, MEDJAY_SIGNING_KEY: KEY } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const e = error as { code?: number; stdout?: string; stderr?: string };
@@ -39,7 +39,7 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "medjay-loop-cli-"));
   const id = `e2e-${randomBytes(4).toString("hex")}`;
   dir = join(root, id);
-  await exec(process.execPath, ["--import", "tsx", CLI, "init", dir, "--id", id, "--currency", "SAR", "--business-type", "agency"], { cwd: REPO });
+  await exec(process.execPath, [CLI, "init", dir, "--id", id, "--currency", "SAR", "--business-type", "agency"], { cwd: REPO });
 }, 90_000);
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });

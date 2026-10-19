@@ -6,18 +6,18 @@ import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // each test spawns the CLI one or more times; under load that can pass the default 20 s
-vi.setConfig({ testTimeout: 90_000 });
+vi.setConfig({ testTimeout: 180_000 });
 import { verifyLedger } from "../audit/ledger.js";
 
 const exec = promisify(execFile);
 const REPO = join(import.meta.dirname, "..", "..");
-const CLI = join(import.meta.dirname, "..", "cli.ts");
+const CLI = join(import.meta.dirname, "..", "..", "dist", "cli.js"); // built once by test/global-setup.ts
 let root: string;
 let dir: string;
 
 async function mdj(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
-    const { stdout, stderr } = await exec(process.execPath, ["--import", "tsx", CLI, ...args, "--workspace", dir], { cwd: REPO, timeout: 60_000 });
+    const { stdout, stderr } = await exec(process.execPath, [CLI, ...args, "--workspace", dir], { cwd: REPO, timeout: 150_000 });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const e = error as { code?: number; stdout?: string; stderr?: string };
@@ -34,7 +34,7 @@ const resultArgs = (over: Record<string, string> = {}) => {
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "medjay-tactic-"));
   dir = join(root, "ws");
-  await exec(process.execPath, ["--import", "tsx", CLI, "init", dir, "--id", "ws", "--business-type", "agency"], { cwd: REPO });
+  await exec(process.execPath, [CLI, "init", dir, "--id", "ws", "--business-type", "agency"], { cwd: REPO });
 }, 90_000);
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });

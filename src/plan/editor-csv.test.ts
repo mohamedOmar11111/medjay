@@ -15,7 +15,7 @@ const adGroup = (name: string) => ({ platform: "google_ads", kind: "ad_group", i
 const compile = (proposals: unknown[]) => compilePlan({ workspace: "ws", origin: { job: "manual", finding_ids: [] }, proposals: proposals as never, now: NOW }, { policy: PolicySchema.parse({ limits: { require_simulation_for_scale: false, max_daily_budget_increase_pct: 1000 } }) }).plan;
 const rows = (csv: string | null) => parseCsv((csv ?? "").replace(/^﻿/, ""));
 
-describe("Google Ads Editor CSV: Ad Group Status and Action columns", () => {
+describe("Google Ads Editor CSV: Ad Group Status and Status (Removed) columns", () => {
   it("keeps the six base columns when nothing needs more", () => {
     const { csv } = buildEditorCsv(compile([{ type: "status_change", target: campaign, from: "ENABLED", to: "PAUSED" }]).actions);
     expect(rows(csv)).toEqual([["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget"], ["Brand Search", "", "", "", "Paused", ""]]);
@@ -39,12 +39,12 @@ describe("Google Ads Editor CSV: Ad Group Status and Action columns", () => {
     expect(built.problems.get("a2")).toMatch(/budget.*campaign/i);
   });
 
-  it("removing a negative keyword is emitted as a row with Action: Remove, in the Action column", () => {
+  it("removing a negative keyword is emitted as a row with Status: Removed, in the Status column", () => {
     const { csv } = buildEditorCsv(compile([{ type: "remove_negative_keywords", target: campaign, terms: [{ text: "free", match: "BROAD" }, { text: "رخيص", match: "EXACT" }] }]).actions);
     expect(rows(csv)).toEqual([
-      ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget", "Action"],
-      ["Brand Search", "", "free", "Negative Broad", "", "", "Remove"],
-      ["Brand Search", "", "رخيص", "Negative Exact", "", "", "Remove"],
+      ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget", "Status"],
+      ["Brand Search", "", "free", "Negative Broad", "", "", "Removed"],
+      ["Brand Search", "", "رخيص", "Negative Exact", "", "", "Removed"],
     ]);
   });
 
@@ -58,11 +58,11 @@ describe("Google Ads Editor CSV: Ad Group Status and Action columns", () => {
       ]).actions,
     );
     expect(rows(csv)).toEqual([
-      ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget", "Ad Group Status", "Action"],
+      ["Campaign", "Ad Group", "Keyword", "Criterion Type", "Campaign Status", "Budget", "Ad Group Status", "Status"],
       ["Brand Search", "", "", "", "", "90", "", ""],
       ["Brand Search", "g1", "", "", "", "", "Paused", ""],
       ["Brand Search", "", "jobs", "Negative Phrase", "", "", "", ""],
-      ["Brand Search", "", "free", "Negative Broad", "", "", "", "Remove"],
+      ["Brand Search", "", "free", "Negative Broad", "", "", "", "Removed"],
     ]);
   });
 });
@@ -92,10 +92,10 @@ describe("validating the extended Editor CSV", () => {
     const { plan, file } = await exported([{ type: "status_change", target: adGroup("g1"), from: "ENABLED", to: "PAUSED" }, { type: "remove_negative_keywords", target: campaign, terms: [{ text: "free", match: "BROAD" }] }]);
     const original = await readFile(file, "utf8");
     const check = async (text: string) => (await validateExport({ dir, plan })).issues.map((i) => i.message).join("\n");
-    await writeFile(file, original.replace(",Remove", ",Delete"), "utf8");
-    expect(await check(original)).toMatch(/Action "Delete" is not Remove/);
-    await writeFile(file, original.replace("free,Negative Broad,,,,Remove", ",Negative Broad,,,,Remove"), "utf8");
-    expect(await check(original)).toMatch(/Action needs a Keyword|Keyword row needs|needs a Keyword/);
+    await writeFile(file, original.replace(",Removed", ",Deleted"), "utf8");
+    expect(await check(original)).toMatch(/Status "Deleted" is not Removed/);
+    await writeFile(file, original.replace("free,Negative Broad,,,,Removed", ",Negative Broad,,,,Removed"), "utf8");
+    expect(await check(original)).toMatch(/Status needs a Keyword|needs a Keyword/);
     await writeFile(file, original.replace("Brand Search,g1,,,,,Paused", "Brand Search,,,,,,Paused"), "utf8");
     expect(await check(original)).toMatch(/Ad Group Status needs an Ad Group/);
   });

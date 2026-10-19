@@ -257,7 +257,7 @@ export function registerPlanCommands(program: Command): void {
 
   program
     .command("strike <number>")
-    .description("execute an approved plan through the Shield (export files in M1; live connectors in M2)")
+    .description("execute an approved plan through the Shield (writes export files; there are no live connectors yet)")
     .option("--workspace <dir>", "workspace folder")
     .action((number: string, opts: { workspace?: string }) =>
       guarded(async () => {

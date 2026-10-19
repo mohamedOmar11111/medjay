@@ -65,7 +65,7 @@ function checkEditorCsv(bytes: Buffer, plan: Plan, ids: string[]): ExportIssue[]
     return issues;
   }
   const col = (name: string) => header.indexOf(name);
-  const [adGroupStatusAt, actionAt] = [col("Ad Group Status"), col("Action")];
+  const [adGroupStatusAt, itemStatusAt] = [col("Ad Group Status"), col("Status")];
 
   const campaignRows = new Map<string, number>();
   rows.slice(1).forEach((cells, i) => {
@@ -73,7 +73,7 @@ function checkEditorCsv(bytes: Buffer, plan: Plan, ids: string[]): ExportIssue[]
     if (cells.length !== header.length) return add(`has ${cells.length} columns, expected ${header.length}`, row);
     const [campaign, adGroup, keyword, criterion, status, budget] = cells as [string, string, string, string, string, string];
     const adGroupStatus = adGroupStatusAt === -1 ? "" : (cells[adGroupStatusAt] as string);
-    const action = actionAt === -1 ? "" : (cells[actionAt] as string);
+    const itemStatus = itemStatusAt === -1 ? "" : (cells[itemStatusAt] as string);
     cells.forEach((c, at) => {
       if (FORMULA_START.test(c) || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(c)) add(`column ${header[at]} holds text a spreadsheet could run as a formula or that has control characters`, row);
     });
@@ -82,7 +82,7 @@ function checkEditorCsv(bytes: Buffer, plan: Plan, ids: string[]): ExportIssue[]
     if (!STATUSES.has(adGroupStatus)) add(`Ad Group Status "${adGroupStatus}" is not Enabled or Paused`, row);
     if (!CRITERIA.has(criterion)) add(`Criterion Type "${criterion}" is not a negative match type`, row);
     if (budget !== "" && !(/^\d+(\.\d{1,2})?$/.test(budget) && Number(budget) > 0)) add(`Budget "${budget}" is not a positive amount with at most 2 decimals`, row);
-    if (action !== "" && action !== "Remove") add(`Action "${action}" is not Remove`, row);
+    if (itemStatus !== "" && itemStatus !== "Removed") add(`Status "${itemStatus}" is not Removed (Medjay only removes negative keywords at item level)`, row);
     if (adGroupStatus !== "" && adGroup === "") add("Ad Group Status needs an Ad Group", row);
     if (adGroup !== "" && adGroupStatus === "") add("an Ad Group row must set its Ad Group Status (Medjay does not edit anything else at ad group level)", row);
 
@@ -92,7 +92,7 @@ function checkEditorCsv(bytes: Buffer, plan: Plan, ids: string[]): ExportIssue[]
       if (keyword.length > 80) add("Keyword is longer than 80 characters", row);
       if (status !== "" || budget !== "" || adGroupStatus !== "") add("a negative keyword row must not also change status or budget", row);
     } else {
-      if (action !== "") add("Action needs a Keyword: Medjay only removes negative keywords", row);
+      if (itemStatus !== "") add("Status needs a Keyword: Medjay only removes negative keywords", row);
       if (criterion !== "") add("a Criterion Type needs a Keyword", row);
       if (adGroup !== "") {
         if (status !== "" || budget !== "") add("an Ad Group row must not also change the campaign's status or budget", row);
