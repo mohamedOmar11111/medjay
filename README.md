@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/logo-mark.svg" width="140" alt="Medjay Logo" /></p>
+
 # Medjay (`mdj`)
 
 An open, CLI-first, all-model growth-agent harness for marketers. It has two halves:

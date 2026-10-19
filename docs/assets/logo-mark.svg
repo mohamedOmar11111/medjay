@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Pure Black Background Badge -->
+  <rect width="512" height="512" rx="96" fill="#000000"/>
+
+  <!-- Outer Egyptian Shen Ring of Protection (Segmented Monochrome Border) -->
+  <!-- Main Upper & Right Arc -->
+  <path d="M 102 368 A 190 190 0 1 1 428 336" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="butt"/>
+  <!-- Left Lower Arc Segment -->
+  <path d="M 74 298 A 190 190 0 0 0 168 424" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="butt"/>
+  <!-- Bottom Right Shen Binding Segments -->
+  <path d="M 332 430 A 190 190 0 0 0 404 376" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="butt"/>
+
+  <!-- Shen Ring Base Bar & Knot (Authentic Cartouche Anchor) -->
+  <rect x="176" y="446" width="160" height="18" rx="9" fill="#FFFFFF"/>
+  <rect x="242" y="422" width="28" height="46" rx="4" fill="#FFFFFF"/>
+
+  <!-- Nemes Headdress Crown Stripes (Upper Left) -->
+  <path d="M 136 168 C 176 124 246 118 294 148 L 284 168 C 242 144 184 148 148 184 Z" fill="#FFFFFF"/>
+  <path d="M 126 202 C 168 164 234 158 282 182 L 272 200 C 230 180 174 184 138 218 Z" fill="#FFFFFF"/>
+
+  <!-- Uraeus Cobra Crest on Brow -->
+  <path d="M 278 144 C 288 122 308 126 302 148 C 298 160 292 170 296 184 L 278 184 Z" fill="#FFFFFF"/>
+
+  <!-- Fused 'M' Monogram + Medjay Warrior Profile + Beard -->
+  <path d="M 98 376
+           L 142 198
+           L 180 198
+           L 210 278
+           L 246 196
+           L 292 196
+           L 304 238
+           L 290 244
+           L 314 286
+           L 294 296
+           L 302 310
+           L 288 318
+           L 298 332
+           C 298 348 280 356 262 352
+           L 228 338
+           L 242 256
+           L 204 334
+           L 166 254
+           L 132 392 Z"
+        fill="#FFFFFF"/>
+
+  <!-- Negative-Space Eye of Horus (Carved Inside Profile) -->
+  <path d="M 238 232 Q 264 218 288 230 Q 264 242 238 232 Z" fill="#000000"/>
+  <circle cx="266" cy="231" r="5" fill="#FFFFFF"/>
+  <path d="M 232 222 Q 262 208 290 220" fill="none" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Braided Pharaonic Chin Beard (Geometric Chevrons) -->
+  <polygon points="266,358 290,358 284,376 260,376" fill="#FFFFFF"/>
+  <polygon points="262,382 286,382 280,400 256,400" fill="#FFFFFF"/>
+
+  <!-- Terminal Prompt Chevron (>) & Cursor (_) -->
+  <path d="M 332 214 L 388 270 L 332 326 L 314 308 L 352 270 L 314 232 Z" fill="#FFFFFF"/>
+  <rect x="364" y="316" width="68" height="22" fill="#FFFFFF"/>
+</svg>
