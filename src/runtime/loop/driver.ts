@@ -50,7 +50,7 @@ export function createAiSdkDriver(options: AiSdkDriverOptions): ModelDriver {
     if (target.credentialRequired) {
       const resolved = await options.credentials.resolve({ keychainRef: target.keychainRef, envFallback: target.envFallback });
       if (resolved.source === "none") {
-        throw Object.assign(new Error(`no API key for ${target.provider}: store one with "mdj models key set ${target.provider}"`), { statusCode: 401 });
+        throw Object.assign(new Error(`no API key for ${target.provider}: store one with "mdj auth set ${target.provider}"`), { statusCode: 401 });
       }
       apiKey = resolved.value;
     }

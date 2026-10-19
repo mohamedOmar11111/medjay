@@ -140,7 +140,7 @@ describe("help, language, errors", () => {
     expect(a.next.length).toBe(6);
   });
   it("explains the missing model in plain words in both languages", () => {
-    expect(noModelAnswer("en").body[0]).toContain("mdj models key set anthropic");
+    expect(noModelAnswer("en").body[0]).toContain("mdj auth set anthropic");
     expect(noModelAnswer("ar").headline).toMatch(/[؀-ۿ]/);
   });
   it("switches language and wraps errors", () => {

@@ -111,7 +111,7 @@ describe("askAgent", () => {
   });
 
   it("explains a missing model key in plain words", async () => {
-    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: 'auth: all model targets failed: anthropic/x (auth: no API key for anthropic: store one with "mdj models key set anthropic")\n', code: 1 }));
+    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: 'auth: all model targets failed: anthropic/x (auth: no API key for anthropic: store one with "mdj auth set anthropic")\n', code: 1 }));
     const r = await askAgent("write three headlines", ctx);
     expect(r.text).toMatch(/^# I'm not connected to an AI model yet/);
     expect(r.text).not.toMatch(/run_x|targets failed/);

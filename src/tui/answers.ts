@@ -288,7 +288,7 @@ export const languageAnswer = (lang: Language): Answer => ({ headline: pick(lang
 
 export const noModelAnswer = (lang: Language): Answer => ({
   headline: pick(lang)("I'm not connected to an AI model yet, so I can only answer the questions I know.", "ما أنا متصل بنموذج ذكاء اصطناعي للحين، فأقدر أجاوب على الأسئلة اللي أعرفها فقط."),
-  body: [pick(lang)("To ask me anything else, connect a model: mdj models key set anthropic (or ask whoever set up Medjay).", "عشان تسألني أي شي ثاني اربط نموذجاً: mdj models key set anthropic (أو اسأل اللي ركّب Medjay).")],
+  body: [pick(lang)("To ask me anything else, connect a model: mdj auth set anthropic (or ask whoever set up Medjay).", "عشان تسألني أي شي ثاني اربط نموذجاً: mdj auth set anthropic (أو اسأل اللي ركّب Medjay).")],
   next: helpAnswer(lang, false).next.slice(0, 4),
 });
 
