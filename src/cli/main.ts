@@ -245,6 +245,17 @@ export function buildProgram(): Command {
   registerAnalysisCommands(program);
   registerVaultCommands(registerTacticCommands(program));
   registerMediaCommands(program);
+
+  program
+    .command("tui")
+    .description("open the interactive terminal app (also what plain `mdj` does in a terminal)")
+    .option("--workspace <dir>", "workspace folder")
+    .action((opts: { workspace?: string }) =>
+      guarded(async () => {
+        const { launch } = await import("../tui/launch.js");
+        await launch(opts.workspace ? { workspace: opts.workspace } : {});
+      }),
+    );
   registerBridgeCommands(program);
   registerShadowCommands(program);
   registerDemoCommands(program);

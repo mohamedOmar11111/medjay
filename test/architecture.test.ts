@@ -15,6 +15,7 @@ const ALLOWED: Record<string, string[]> = {
   ingest: ["store", "audit", "shared"],
   tactics: ["shared"],
   media: ["ingest", "shared"],
+  tui: ["cli", "analysis", "ingest", "plan", "audit", "shield", "store", "workspace", "shared"],
   shadow: ["ingest", "runtime", "shared"],
   vault: ["tactics", "audit", "ingest", "shared"],
   demo: ["bridge", "analysis", "ingest", "plan", "shield", "store", "audit", "tactics", "workspace", "models", "shared"],
@@ -28,8 +29,8 @@ const ALLOWED: Record<string, string[]> = {
   runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
-  cli: ["media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
-  root: ["cli", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
+  cli: ["tui", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  root: ["cli", "tui", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 
 async function sourceFiles(dir: string): Promise<string[]> {
@@ -37,7 +38,7 @@ async function sourceFiles(dir: string): Promise<string[]> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...(await sourceFiles(full)));
-    else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) out.push(full);
+    else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) out.push(full);
   }
   return out;
 }
