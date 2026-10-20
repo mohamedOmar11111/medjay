@@ -7,6 +7,7 @@ import type { PlatformSnapshot, Snapshot } from "../analysis/scout.js";
 import type { SimulationResult } from "../analysis/simulate.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
+import type { ModelFailure } from "./model-errors.js";
 
 export interface Suggestion {
   label: string;
@@ -291,6 +292,30 @@ export const noModelAnswer = (lang: Language): Answer => ({
   body: [pick(lang)("To ask me anything else, connect a model: mdj auth set anthropic (or ask whoever set up Medjay).", "عشان تسألني أي شي ثاني اربط نموذجاً: mdj auth set anthropic (أو اسأل اللي ركّب Medjay).")],
   next: helpAnswer(lang, false).next.slice(0, 4),
 });
+
+/** Say what is actually wrong with the model connection, and the one thing to do about it. */
+export function modelErrorAnswer(f: ModelFailure, lang: Language): Answer {
+  const p = f.provider ?? "anthropic";
+  const L = pick(lang);
+  const next = helpAnswer(lang, false).next.slice(0, 4);
+  const connect = L(`Type /connect ${p} to paste a fresh key (it is hidden and stored in your system keychain).`, `اكتب /connect ${p} وألصق مفتاحاً جديداً (يبقى مخفياً ويُحفظ في مفاتيح النظام).`);
+  switch (f.kind) {
+    case "no_key":
+      return { headline: L(`I don't have a key for ${p} yet.`, `ما عندي مفتاح لـ ${p} للحين.`), body: [connect], next };
+    case "key_rejected":
+      return { headline: L(`${p} rejected the saved key.`, `${p} رفض المفتاح المحفوظ.`), body: [L("It may be expired, revoked, or copied wrong.", "ممكن انتهت صلاحيته أو انلغى أو انسخ غلط."), connect], next };
+    case "key_malformed":
+      return { headline: L("The saved key has stray characters from pasting, so it can't be sent.", "المفتاح المحفوظ فيه رموز زيادة من اللصق، فما ينفع يُرسل."), body: [connect], next };
+    case "quota":
+      return { headline: L(`${p} says your spending limit is reached.`, `${p} يقول إنك وصلت حد الصرف.`), body: [f.detail, L("Raise the limit on your provider's billing page, or connect another provider with /connect.", "ارفع الحد من صفحة الفوترة عند المزود، أو اربط مزوداً ثانياً بـ /connect.")], next };
+    case "model_not_found":
+      return { headline: L("That model name isn't available on your account.", "اسم النموذج هذا مو متاح في حسابك."), body: [L("Pick another model in workspace.yaml (the models: slots section).", "اختر نموذجاً ثانياً في workspace.yaml (قسم models: slots).")], next };
+    case "network":
+      return { headline: L(`I couldn't reach ${p}.`, `ما قدرت أوصل لـ ${p}.`), body: [L("Check your internet connection and try again.", "تأكد من الإنترنت وجرّب مرة ثانية.")], next };
+    default:
+      return { headline: L("The AI model call failed.", "فشل الاتصال بنموذج الذكاء."), body: [f.detail], next };
+  }
+}
 
 export const errorAnswer = (lang: Language, detail: string): Answer => ({
   headline: pick(lang)("I couldn't finish that.", "ما قدرت أكمل هذا."),

@@ -3,7 +3,7 @@ import { diagnose } from "../analysis/diagnose.js";
 import { scout, type Snapshot } from "../analysis/scout.js";
 import { loadUnitEconomics, simulate } from "../analysis/simulate.js";
 import { FIXTURE_NOW, setupIngest, type IngestHarness } from "../../test/helpers/ingest.js";
-import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, noModelAnswer, performanceAnswer, periodLabel, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer } from "./answers.js";
+import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, modelErrorAnswer, noDataAnswer, noModelAnswer, performanceAnswer, periodLabel, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer } from "./answers.js";
 import { emptyDashboard, type Dashboard } from "./dashboard.js";
 
 const JARGON = /\bMER\b|P10|P50|P90|calibration|Monte Carlo|percentile|ROAS|adset|\bUTM\b/i;
@@ -151,5 +151,25 @@ describe("help, language, errors", () => {
     expect(periodLabel("2026-10-10", "2026-10-16", "en")).toBe("10–16 Oct");
     expect(periodLabel("2026-09-28", "2026-10-04", "en")).toBe("28 Sep – 4 Oct");
     expect(periodLabel("2026-10-10", "2026-10-16", "ar")).toBe("10–16 أكتوبر");
+  });
+});
+
+describe("modelErrorAnswer", () => {
+  const f = (kind: "no_key" | "key_malformed" | "key_rejected" | "quota" | "model_not_found" | "network" | "other", detail = "d", provider = "openai") => ({ kind, provider, detail });
+  it("says what is wrong and the exact next step, in ASCII commands", () => {
+    expect(text(modelErrorAnswer(f("no_key"), "en"))).toContain("/connect openai");
+    expect(text(modelErrorAnswer(f("key_rejected"), "en"))).toMatch(/rejected/);
+    expect(text(modelErrorAnswer(f("key_malformed"), "en"))).toMatch(/stray/);
+    expect(text(modelErrorAnswer(f("quota", "regain access on 2026-11-01 at 00:00 UTC"), "en"))).toContain("2026-11-01");
+    expect(text(modelErrorAnswer(f("network"), "en"))).toMatch(/reach/);
+    expect(text(modelErrorAnswer(f("model_not_found"), "en"))).toContain("workspace.yaml");
+  });
+  it("answers in Arabic with ASCII commands", () => {
+    const a = modelErrorAnswer(f("no_key", "d", "anthropic"), "ar");
+    expect(a.headline).toMatch(/[؀-ۿ]/);
+    expect(text(a, "ar")).toContain("/connect anthropic");
+  });
+  it("never repeats the old catch-all for a stored-but-rejected key", () => {
+    expect(text(modelErrorAnswer(f("key_rejected"), "en"))).not.toMatch(/not connected to an AI model yet/);
   });
 });

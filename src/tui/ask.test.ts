@@ -110,11 +110,22 @@ describe("askAgent", () => {
     expect(r.text).toContain("I prepared 1 plan(s) for you to review");
   });
 
-  it("explains a missing model key in plain words", async () => {
-    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: 'auth: all model targets failed: anthropic/x (auth: no API key for anthropic: store one with "mdj auth set anthropic")\n', code: 1 }));
+  it("a missing key points to /connect with the provider", async () => {
+    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: "auth: all model targets failed: anthropic/x (auth: no API key for anthropic: store one with \"mdj auth set anthropic\")\n", code: 1 }));
     const r = await askAgent("write three headlines", ctx);
-    expect(r.text).toMatch(/^# I'm not connected to an AI model yet/);
+    expect(r.text).toMatch(/^# I don.t have a key for anthropic yet/);
+    expect(r.text).toContain("/connect anthropic");
     expect(r.text).not.toMatch(/run_x|targets failed/);
+  });
+
+  it("a rejected key is not reported as not connected", async () => {
+    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: "auth: all model targets failed: openai/gpt-5.4-mini (auth: Invalid API key)\n", code: 1 }));
+    expect((await askAgent("hi", ctx)).text).toMatch(/^# openai rejected the saved key/);
+  });
+
+  it("a spend cap shows the reset date", async () => {
+    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s), 0 tokens\n", err: "failed: You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.\n", code: 1 }));
+    expect((await askAgent("hi", ctx)).text).toContain("2026-11-01");
   });
 
   it("uses an Arabic instruction when the question is Arabic", async () => {

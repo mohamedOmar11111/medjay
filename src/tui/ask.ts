@@ -5,9 +5,10 @@ import { join } from "node:path";
 import type { Diagnosis } from "../analysis/diagnose.js";
 import type { Snapshot } from "../analysis/scout.js";
 import type { SimulationResult } from "../analysis/simulate.js";
-import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, noModelAnswer, performanceAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
+import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, modelErrorAnswer, performanceAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
+import { classifyModelFailure } from "./model-errors.js";
 import type { Runner } from "./runner.js";
 
 /** Where exports go by default. A workspace can point elsewhere in workspace.yaml; this is only for wording. */
@@ -110,7 +111,8 @@ const TASK_PREFIX: Record<Language, string> = {
 /** Hand an open question to the agent, and strip the run bookkeeping from what comes back. */
 export async function askAgent(text: string, ctx: AskContext): Promise<Reply> {
   const c = await collect(ctx, ["run", "--workspace", ctx.workspaceDir, "--", `${TASK_PREFIX[ctx.lang]}${text}`]);
-  if (/no API key|\bauth:|all model targets failed/i.test(`${c.err}${c.out}`)) return reply(noModelAnswer(ctx.lang), ctx.lang);
+  const failure = c.code !== 0 ? classifyModelFailure(`${c.err}\n${c.out}`) : null;
+  if (failure) return reply(modelErrorAnswer(failure, ctx.lang), ctx.lang);
   const cut = c.out.search(/\nrun run_[0-9a-f]+:/);
   const answer = (cut === -1 ? c.out : c.out.slice(0, cut)).trim();
   const proposals = /(\d+) proposal\(s\) ready/.exec(c.out);
