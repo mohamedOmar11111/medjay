@@ -3,6 +3,8 @@
 // every ledger entry. A run always ends in a named state and is never thrown away:
 //   completed, needs_human, max_steps_reached, max_tokens_reached, max_cost_reached, aborted, failed
 // Interrupted runs resume from what was saved (see resume.ts) without re-running or re-billing steps.
+import type { RunEvent } from "../../run-events.js";
+import { cardFor } from "./cards.js";
 import { createHash, randomBytes } from "node:crypto";
 import { canonicalJson } from "../../audit/canonical.js";
 import type { Ledger } from "../../audit/ledger.js";
@@ -45,6 +47,8 @@ export interface RunDeps {
   staleAfterDays?: number;
   /** Who resumed a run, for the ledger. */
   actor?: string;
+  /** Watches the run as it happens (the live view). A throwing observer never affects the run. */
+  onEvent?: (event: RunEvent) => void;
 }
 
 export interface RunInput {
@@ -101,6 +105,15 @@ interface Ctx {
   approveCallId?: string;
 }
 
+/** Tell the observer, if any; its bugs stay its own. */
+function emit(ctx: Ctx, event: RunEvent): void {
+  try {
+    ctx.deps.onEvent?.(event);
+  } catch {
+    // an observer must never break a run
+  }
+}
+
 const redactValue = (redactor: Redactor, value: unknown): unknown => {
   if (value === undefined) return undefined;
   const redacted = redactor.redact(JSON.stringify(value)).text;
@@ -150,6 +163,7 @@ export async function startRun(deps: RunDeps, input: RunInput, signal: AbortSign
 /** Shared by start and resume: finish any half-done step, then loop until the run stops. */
 export async function drive(ctx: Ctx): Promise<RunResult> {
   const { deps, repo, runId } = ctx;
+  emit(ctx, { type: "run.started", run_id: runId, slot: repo.require(runId).slot });
   try {
     // A step with a call that has no finished result: crashed before its tools ran, or paused for a human.
     const half = repo.steps(runId).find((s) => s.phase === "model_done" || s.tool_calls.some((c) => !s.tool_results.some((r) => r.call_id === c.call_id && r.status === "done")));
@@ -178,6 +192,7 @@ export async function drive(ctx: Ctx): Promise<RunResult> {
         throw error;
       }
 
+      emit(ctx, { type: "step.started", step: stepIndex, max_steps: header.limits.max_steps });
       const started = Date.now();
       let result;
       try {
@@ -198,6 +213,7 @@ export async function drive(ctx: Ctx): Promise<RunResult> {
 
       // Phase 1: the model has answered and been billed. Save it before touching any tool.
       repo.beginStep(runId, stepIndex, { assistantText: text, toolCalls: calls, usage: result.usage, model: result.model, costUsd: result.costUsd, costKnown: result.costUsd !== null, nudge, now: deps.now() });
+      if (text.trim() !== "") emit(ctx, { type: "step.text", step: stepIndex, text });
       deps.store.recordUsage({
         ts: deps.now().toISOString(),
         job: `run:${runId}`,
@@ -308,11 +324,14 @@ async function executeCalls(ctx: Ctx, step: StepRecord): Promise<"complete" | "n
       results.push({ call_id: call.call_id, name: call.name, status: "skipped", ok: false, trust: "trusted" });
       continue;
     }
+    emit(ctx, { type: "tool.started", step: step.step_index, call_id: call.call_id, name: call.name, class: deps.registry.specs().find((t) => t.name === call.name)?.class ?? "unknown", input_hash: sha256(canonicalJson(call.input)).slice(0, 12) });
     const outcome = await deps.registry.invoke(
       { name: call.name, input: call.input },
       { runId, step: step.step_index, scope: deps.scope, signal: ctx.signal, ...(call.call_id === ctx.approveCallId ? { approveAsk: true } : {}) },
     );
     if (ctx.signal.aborted) return "aborted";
+    const card = cardFor(call.name, call.input, outcome.ok ? outcome.output : undefined, outcome.ok, outcome.ok ? undefined : outcome.error.kind);
+    emit(ctx, { type: "tool.finished", step: step.step_index, call_id: call.call_id, name: call.name, ok: outcome.ok, label: card.label, summary: card.summary, ...(outcome.ok ? {} : { error_kind: outcome.error.kind }) });
     if (!outcome.ok && outcome.error.kind === "approval_required") {
       pending = { callId: call.call_id, tool: call.name, step: step.step_index };
       results.push({ call_id: call.call_id, name: call.name, status: "pending_approval", ok: false, error: outcome.error, trust: "trusted" });
@@ -373,6 +392,19 @@ async function finish(ctx: Ctx, status: RunStatus, extra: { finalText?: string; 
       ...(extra.error ? { error: extra.error } : {}),
     },
   });
+  const proposals = collectProposals(steps.length === 0 ? [] : repo.steps(runId));
+  emit(ctx, {
+    type: "run.finished",
+    status,
+    steps: after.steps_done,
+    tokens: { input: after.input_tokens, output: after.output_tokens },
+    cost_usd: after.cost_usd,
+    cost_known: after.cost_known,
+    final_text: finalText,
+    proposals: proposals.length,
+    ...(pending ? { pending: { call_id: pending.callId, tool: pending.tool } } : {}),
+    ...(extra.error ? { error: extra.error } : {}),
+  });
   return {
     runId,
     status,
@@ -382,7 +414,7 @@ async function finish(ctx: Ctx, status: RunStatus, extra: { finalText?: string; 
     costUsd: after.cost_usd,
     costKnown: after.cost_known,
     ...(pending ? { pending } : {}),
-    proposals: collectProposals(steps.length === 0 ? [] : repo.steps(runId)),
+    proposals,
     ...(extra.error ? { error: extra.error } : {}),
   };
 }

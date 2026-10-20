@@ -4,6 +4,7 @@ import { canonicalJson } from "../../audit/canonical.js";
 import { verifyLedger } from "../../audit/ledger.js";
 import { join } from "node:path";
 import { NOW, policyWith, readCall, scriptedDriver, setupRun, type RunHarness } from "../../../test/helpers/loop.js";
+import type { RunEvent } from "../../run-events.js";
 import { NUDGE_MARKER, policyHash, startRun } from "./run.js";
 import { RunAbortedError } from "./types.js";
 
@@ -292,5 +293,36 @@ describe("policyHash", () => {
     expect(policyHash(h.policy)).toBe(createHash("sha256").update(canonicalJson(h.policy), "utf8").digest("hex"));
     expect(policyHash(policyWith({ runtime_limits: { max_steps: 5 } }))).not.toBe(policyHash(h.policy));
     expect(policyHash(h.policy)).toBe(policyHash(h.policy));
+  });
+});
+
+describe("live events", () => {
+  const withEvents = (onEvent: (e: RunEvent) => void) => ({ ...h.deps, onEvent });
+
+  it("reports the run, each step, each tool call and the finish, in order, without file content", async () => {
+    const seen: RunEvent[] = [];
+    const { result } = await run([{ text: "Reading the CSV.", calls: [readCall("data/imports/meta.csv")] }, { text: "Maldives_Broad spent the most." }], {}, undefined, withEvents((e) => seen.push(e)));
+    expect(seen.map((e) => e.type)).toEqual(["run.started", "step.started", "step.text", "tool.started", "tool.finished", "step.started", "step.text", "run.finished"]);
+    const started = seen.find((e) => e.type === "tool.started");
+    expect(started).toMatchObject({ name: "read_file", class: "read", call_id: "c1_1" });
+    expect((started as { input_hash: string }).input_hash).toMatch(/^[0-9a-f]{12}$/);
+    const done = seen.find((e) => e.type === "tool.finished");
+    expect(done).toMatchObject({ ok: true, label: "Read file" });
+    expect(JSON.stringify(seen)).not.toContain("KSA_Bookers");
+    expect(seen[seen.length - 1]).toMatchObject({ type: "run.finished", status: "completed", steps: 2, final_text: "Maldives_Broad spent the most.", proposals: 0 });
+    expect(result.status).toBe("completed");
+  });
+
+  it("a failing observer never breaks the run", async () => {
+    const { result } = await run([{ text: "done" }], {}, undefined, withEvents(() => {
+      throw new Error("observer bug");
+    }));
+    expect(result.status).toBe("completed");
+  });
+
+  it("reports a failed tool call as a failed card", async () => {
+    const seen: RunEvent[] = [];
+    await run([{ calls: [readCall("data/imports/missing.csv")] }, { text: "ok" }], {}, undefined, withEvents((e) => seen.push(e)));
+    expect(seen.find((e) => e.type === "tool.finished")).toMatchObject({ ok: false });
   });
 });
