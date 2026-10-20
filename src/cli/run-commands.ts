@@ -4,7 +4,8 @@ import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "..
 import { NO_MODEL, openRun } from "../runtime/loop/open.js";
 import { RunRepo, RUN_STATUSES, type RunHeader, type RunStatus, type StepRecord } from "../runtime/loop/repo.js";
 import { resumeRun } from "../runtime/loop/resume.js";
-import { startRun, type RunResult } from "../runtime/loop/run.js";
+import { startRun, type RunDeps, type RunResult } from "../runtime/loop/run.js";
+import { encodeEvent } from "../run-events.js";
 import { cliActor, guarded, workspaceDirOrThrow } from "./util.js";
 
 const EXIT: Record<RunStatus, number> = {
@@ -17,6 +18,11 @@ const EXIT: Record<RunStatus, number> = {
   failed: 1,
   running: 1,
 };
+
+/** With --events, stdout carries only the live event lines (one JSON object each) and no summary. */
+function withEvents(deps: RunDeps, events: boolean | undefined): RunDeps {
+  return events ? { ...deps, onEvent: (event) => void process.stdout.write(encodeEvent(event)) } : deps;
+}
 
 /** Ctrl+C aborts the run cleanly: it is saved as resumable instead of being lost. */
 function abortOnInterrupt(): { signal: AbortSignal; dispose: () => void } {
@@ -63,15 +69,16 @@ export function registerRunCommands(program: Command): void {
     .description("run the agent on a task: it reads your workspace, proposes plans, and never writes to a platform")
     .addOption(new Option("--surface <surface>", "where the answer goes (sets tone and usage tag)").choices(USAGE_SURFACES).default("diagnosis"))
     .addOption(new Option("--slot <slot>", "model slot").choices(SLOT_NAMES).default("reasoning"))
+    .option("--events", "write live progress as one JSON object per line on stdout (used by the terminal app)")
     .option("--workspace <dir>", "workspace folder")
-    .action((task: string, opts: { surface: UsageSurface; slot: SlotName; workspace?: string }) =>
+    .action((task: string, opts: { surface: UsageSurface; slot: SlotName; events?: boolean; workspace?: string }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
         const opened = await openRun({ dir, slot: opts.slot, actor: cliActor() });
         const interrupt = abortOnInterrupt();
         try {
-          const result = await startRun(opened.deps, { task, surface: opts.surface, slot: opts.slot }, interrupt.signal);
-          printResult(result);
+          const result = await startRun(withEvents(opened.deps, opts.events), { task, surface: opts.surface, slot: opts.slot }, interrupt.signal);
+          if (!opts.events) printResult(result);
           return EXIT[result.status];
         } finally {
           interrupt.dispose();
@@ -84,8 +91,9 @@ export function registerRunCommands(program: Command): void {
     .command("resume <run_id>")
     .description("continue an interrupted, failed or waiting run from its last saved step (finished steps are never re-run or re-billed)")
     .option("--approve-tool <call_id>", "approve exactly this pending call, once")
+    .option("--events", "write live progress as one JSON object per line on stdout (used by the terminal app)")
     .option("--workspace <dir>", "workspace folder")
-    .action((runId: string, opts: { approveTool?: string; workspace?: string }) =>
+    .action((runId: string, opts: { approveTool?: string; events?: boolean; workspace?: string }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
         const probe = await openRun({ dir, slot: "reasoning", actor: cliActor(), driver: NO_MODEL });
@@ -94,8 +102,8 @@ export function registerRunCommands(program: Command): void {
         const opened = await openRun({ dir, slot, actor: cliActor() });
         const interrupt = abortOnInterrupt();
         try {
-          const result = await resumeRun(opened.deps, runId, opts.approveTool ? { approveTool: opts.approveTool } : {}, interrupt.signal);
-          printResult(result);
+          const result = await resumeRun(withEvents(opened.deps, opts.events), runId, opts.approveTool ? { approveTool: opts.approveTool } : {}, interrupt.signal);
+          if (!opts.events) printResult(result);
           return EXIT[result.status];
         } finally {
           interrupt.dispose();
