@@ -1,3 +1,9 @@
+/** Terminals add bracketed-paste markers and Ctrl+V bytes around a paste; none of that belongs in a key. */
+export function cleanPastedSecret(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/\u001b\[20[01]~/g, "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+}
+
 // Reads a secret without echoing it: piped stdin when not a terminal, hidden prompt otherwise.
 export async function readSecret(promptText: string): Promise<string> {
   const stdin = process.stdin;
@@ -22,10 +28,10 @@ export async function readSecret(promptText: string): Promise<string> {
     };
     const onData = (chunk: string) => {
       for (const char of chunk) {
-        if (char === "\r" || char === "\n") return finish(() => resolve(value.trim()));
+        if (char === "\r" || char === "\n") return finish(() => resolve(cleanPastedSecret(value)));
         if (char === "\u0003") return finish(() => reject(new Error("cancelled")));
         if (char === "\u007f" || char === "\b") value = value.slice(0, -1);
-        else value += char;
+        else if (char >= " ") value += char;
       }
     };
     stdin.on("data", onData);

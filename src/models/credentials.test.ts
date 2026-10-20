@@ -107,6 +107,8 @@ describe("CredentialResolver order: keychain, then MEDJAY_* env, nothing else", 
     await resolver.store("client_a", "  abc  ");
     expect(store.data.get("client_a")).toBe("abc");
     await expect(resolver.store("client_a", "   ")).rejects.toThrow(/empty/);
+    await expect(resolver.store("client_a", "sk-ant-\u0016abc")).rejects.toThrow(/control or space/);
+    await expect(resolver.store("client_a", "sk ant")).rejects.toThrow(/control or space/);
     expect(await resolver.remove("client_a")).toBe(true);
     expect(await resolver.remove("client_a")).toBe(false);
   });

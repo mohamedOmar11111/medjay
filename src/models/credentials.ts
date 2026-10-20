@@ -124,6 +124,7 @@ export class CredentialResolver {
     assertKeychainRef(keychainRef);
     const trimmed = secret.trim();
     if (trimmed === "") throw new Error("secret is empty");
+    if (/[\u0000- \u007f]/.test(trimmed)) throw new Error("secret contains control or space characters (a paste went wrong); nothing was stored");
     await this.keystore.set(keychainRef, trimmed);
   }
 

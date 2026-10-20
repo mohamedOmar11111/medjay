@@ -107,4 +107,10 @@ describe("what it refuses to guess", () => {
     expect(d.mappings!.sources[0]).toMatchObject({ kind: "crm", stage_map: { "New Lead": "lead", "Closed Won": "won" }, columns: { revenue: "Deal Value" } });
     expect(d.notes.join()).toMatch(/Pending Docs/);
   });
+
+  it("reads a Respond.io style CRM export whose date column is called Created Date", async () => {
+    await ads("respondio.csv", "Contact ID,Created Date,Stage,Deal Value,UTM Source,UTM Campaign,Phone", "1,2026-10-01,New Lead,,google,A,+966500000000");
+    const d = await detectMappings(drop, "SAR");
+    expect(d.mappings!.sources[0]).toMatchObject({ kind: "crm", columns: { created_at: "Created Date" } });
+  });
 });

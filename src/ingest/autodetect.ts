@@ -34,7 +34,7 @@ const WEB_FIELDS: Fields = {
 };
 const CRM_FIELDS: Fields = {
   contact_id: ["contact id", "id", "contact_id", "lead id", "record id"],
-  created_at: ["created at", "date added", "created_at", "create date", "created", "date created"],
+  created_at: ["created at", "date added", "created_at", "create date", "created", "date created", "created date"],
   stage: ["stage", "lifecycle stage", "pipeline stage", "deal stage", "status", "stage name"],
   revenue: ["deal value", "amount", "revenue", "deal amount", "value"],
   utm_source: ["utm source", "utm_source", "source", "lead source"],

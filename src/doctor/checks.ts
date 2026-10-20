@@ -127,6 +127,10 @@ async function checkCredentials(loaded: LoadedWorkspace, options: DoctorOptions)
   const missingFallback: CredentialRef[] = [];
   for (const { ref, primary } of needed.values()) {
     const status = await resolver.status(ref);
+    const value = (await resolver.resolve(ref)).value;
+    if (value !== undefined && /[^!-~]/.test(value)) {
+      return check("credentials", "Credentials", "fail", `${ref.keychainRef}: stored value is not a clean key (${value.length} characters, with control or space characters; a paste went wrong)`, `run "mdj auth set ${ref.keychainRef}" again and paste once`);
+    }
     if (status.source === "none") (primary ? missingPrimary : missingFallback).push(ref);
     else found.push(`${ref.keychainRef}: ${status.source}`);
   }

@@ -126,6 +126,16 @@ describe("runDoctor: basics", () => {
     expect(byId((await run({ env: {}, keystore: store })).checks, "credentials").status).toBe("pass");
   });
 
+  it("fails, without printing the key, when a stored key has control characters or spaces", async () => {
+    const store = memoryStore();
+    await store.set(defaultRef("anthropic").keychainRef, "sk-ant-\u0016abc");
+    const report = await run({ env: {}, keystore: store });
+    const c = byId(report.checks, "credentials");
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/not a clean key/);
+    expect(JSON.stringify(report)).not.toContain("sk-ant-");
+  });
+
   it("accepts a default-reference credential held in the keychain", async () => {
     const store = memoryStore();
     await new CredentialResolver({ keystore: store, env: {} }).store(defaultRef("anthropic").keychainRef, "k");
