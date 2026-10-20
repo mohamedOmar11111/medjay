@@ -712,6 +712,8 @@ Unchanged and tested: the app never approves, strikes, rolls back or applies any
 
 **Limits.** The Arabic wording was written for this app and has not been reviewed by a native-speaking marketer; terminals differ in how they shape and order Arabic text, which has not been checked visually. The router is deliberately narrow, so open questions need a model key. Scale questions default to a 20 percent increase unless a percentage is given.
 
+**Model connection (built 2026-10-20).** A failed agent call is classified (`src/tui/model-errors.ts`) instead of always reading "not connected": no key, malformed key, rejected key, spend cap (with the reset date the provider gives), unknown model, network. Each has plain English and Arabic text and the one next step. `/connect [provider]` takes the key at a hidden prompt (never echoed, never in the feed or the history), hands it to the child `mdj auth set <provider>` on stdin only (the runner's single, explicit stdin exception), then asks the model one tiny question to prove the key works. Design and the remaining phases (events stream, growth tools, permission prompts): `docs/superpowers/specs/2026-10-20-growth-session-and-tools-design.md`.
+
 ## Appendix: glossary
 Plan: compiled, hashed set of proposed actions. Strike: execution of an approved plan. Shield: policy, breakers, audit. Sword: the active growth engine. Dropzone: `data/imports/`. Slot: fast / reasoning / creative. MER: marketing efficiency ratio (blended). POAS: profit on ad spend. Prior: cross-workspace evidence that suggests but does not validate a tactic locally. Customer Zero: the owner's own agency workspace.
 
