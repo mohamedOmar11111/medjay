@@ -45,7 +45,7 @@ async function sourceFiles(dir: string): Promise<string[]> {
 
 const layerOf = (file: string) => {
   const parts = relative(SRC, file).split(sep);
-  if (parts.length === 1) return parts[0] === "version.ts" || parts[0] === "constants.ts" ? "shared" : "root";
+  if (parts.length === 1) return ["version.ts", "constants.ts", "run-events.ts"].includes(parts[0]!) ? "shared" : "root";
   return parts[0]!;
 };
 
