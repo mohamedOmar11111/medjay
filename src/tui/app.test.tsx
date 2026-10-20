@@ -32,15 +32,16 @@ interface Call {
   emit: (text: string) => void;
   finish: (code: number) => void;
   cancel: ReturnType<typeof vi.fn>;
+  stdin?: string;
 }
 
 function fakeRunner(): { runner: Runner; calls: Call[] } {
   const calls: Call[] = [];
-  const runner: Runner = (argv, onChunk) => {
+  const runner: Runner = (argv, onChunk, options) => {
     let finish!: (v: { code: number }) => void;
     const done = new Promise<{ code: number }>((r) => (finish = r));
     const cancel = vi.fn(() => finish({ code: 130 }));
-    calls.push({ argv, emit: (t) => onChunk(t, "out"), finish: (code) => finish({ code }), cancel });
+    calls.push({ argv, emit: (t) => onChunk(t, "out"), finish: (code) => finish({ code }), cancel, ...(options?.stdin !== undefined ? { stdin: options.stdin } : {}) });
     return { done, cancel };
   };
   return { runner, calls };
@@ -189,6 +190,67 @@ describe("asking in your own words", () => {
     await wait(80);
     t.unmount();
     // the agent's own failure text is hidden behind the friendly message (covered in ask.test.ts)
+  });
+});
+
+describe("/connect", () => {
+  const KEY = "sk-test-SECRET-123";
+  it("takes the key hidden, hands it to auth set on stdin only, then tests it with a tiny question", async () => {
+    const t = mount();
+    await t.send("/connect openai");
+    expect(t.frame()).toContain("Paste your openai key");
+    await t.type(KEY);
+    expect(t.frame()).not.toContain(KEY);
+    expect(t.frame()).toContain("••••");
+    t.stdin.write("\r");
+    await wait();
+    expect(t.calls[0]!.argv).toEqual(["auth", "set", "openai"]);
+    expect(t.calls[0]!.stdin).toBe(KEY);
+    t.calls[0]!.finish(0);
+    await wait(60);
+    expect(t.calls[1]!.argv).toEqual(["run", "--workspace", "/work/etl", "--", "Reply with the single word OK."]);
+    t.calls[1]!.emit("OK\n");
+    t.calls[1]!.finish(0);
+    await wait(60);
+    expect(t.frame()).toContain("Connected: openai works.");
+    expect(t.frame()).not.toContain(KEY);
+    expect(JSON.stringify(t.calls.map((c) => c.argv))).not.toContain(KEY);
+    t.unmount();
+  });
+
+  it("names the real reason when the key is stored but rejected", async () => {
+    const t = mount();
+    await t.send("/connect openai");
+    await t.type(KEY);
+    t.stdin.write("\r");
+    await wait();
+    t.calls[0]!.finish(0);
+    await wait(60);
+    t.calls[1]!.emit("auth: all model targets failed: openai/gpt-5.4-mini (auth: Invalid API key)\n");
+    t.calls[1]!.finish(1);
+    await wait(60);
+    expect(t.frame()).toContain("openai rejected the saved key");
+    t.unmount();
+  });
+
+  it("does not test a key that could not be stored, and Esc cancels without sending anything", async () => {
+    const t = mount();
+    await t.send("/connect");
+    await t.type(KEY);
+    t.stdin.write("\r");
+    await wait();
+    t.calls[0]!.emit("error: secret contains control or space characters (a paste went wrong); nothing was stored\n");
+    t.calls[0]!.finish(1);
+    await wait(60);
+    expect(t.calls).toHaveLength(1);
+    expect(t.frame()).toContain("I couldn't store the key");
+    await t.send("/connect google");
+    await t.type(KEY);
+    t.stdin.write("\u001b");
+    await wait(80);
+    expect(t.calls).toHaveLength(1);
+    expect(t.frame()).toContain("Cancelled");
+    t.unmount();
   });
 });
 

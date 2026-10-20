@@ -21,6 +21,7 @@ export const COMMANDS: CommandSpec[] = [
   { name: "plan", usage: "/plan [list | show <n>]", summary: "list plans or show one (approving is done in the terminal)" },
   { name: "ledger", usage: "/ledger", summary: "verify the tamper-evident audit ledger" },
   { name: "doctor", usage: "/doctor", summary: "pre-flight checks" },
+  { name: "connect", usage: "/connect [anthropic|google|openai|openai_compatible]", summary: "connect an AI model key (typed hidden, stored in your system keychain)" },
   { name: "clear", usage: "/clear", summary: "clear the feed" },
   { name: "quit", usage: "/quit", summary: "leave (also Ctrl+C)" },
 ];
@@ -28,6 +29,7 @@ export const COMMANDS: CommandSpec[] = [
 export type Resolution =
   | { kind: "none" }
   | { kind: "local"; action: "help" | "status" | "clear" | "quit" }
+  | { kind: "local"; action: "connect"; provider: string }
   | { kind: "cli"; argv: string[]; label: string }
   | { kind: "error"; message: string };
 
@@ -116,6 +118,14 @@ function plan(args: string[], ws: string): Resolution {
   return fail("usage: /plan [list | show <number>]");
 }
 
+export const CONNECT_PROVIDERS = ["anthropic", "google", "openai", "openai_compatible"] as const;
+
+function connect(args: string[]): Resolution {
+  const provider = args[0] ?? "anthropic";
+  if (args.length > 1 || !(CONNECT_PROVIDERS as readonly string[]).includes(provider)) return fail(`usage: /connect [${CONNECT_PROVIDERS.join("|")}] (type the key at the hidden prompt, not here)`);
+  return { kind: "local", action: "connect", provider };
+}
+
 export function resolveInput(parsed: Parsed, workspaceDir: string | null): Resolution {
   if (parsed.kind === "empty") return { kind: "none" };
   if (parsed.kind === "task") {
@@ -132,6 +142,8 @@ export function resolveInput(parsed: Parsed, workspaceDir: string | null): Resol
       return { kind: "local", action: name };
     case "media":
       return media(args, workspaceDir);
+    case "connect":
+      return connect(args);
   }
   if (!COMMANDS.some((c) => c.name === name)) return fail(`unknown command /${name}; /help lists them`);
   if (workspaceDir === null) return NEEDS_WORKSPACE;

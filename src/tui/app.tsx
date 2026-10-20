@@ -5,11 +5,13 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { answerIntent, askAgent, type AskContext, type Reply } from "./ask.js";
-import { helpAnswer, renderAnswer, type Suggestion } from "./answers.js";
+import { cleanPastedSecret } from "../cli/secret-input.js";
+import { helpAnswer, modelErrorAnswer, renderAnswer, type Suggestion } from "./answers.js";
 import { COMMANDS, parseInput, resolveInput } from "./commands.js";
 import { ledgerLabel, sidebarLines, emptyDashboard, type Dashboard, type PanelLine } from "./dashboard.js";
 import { buildFeedLines, splashText, type Entry, type EntryKind, type FeedTone } from "./feed.js";
 import { detectLanguage, routeIntent, toLatinDigits, type Language, type Routed } from "./intent.js";
+import { classifyModelFailure } from "./model-errors.js";
 import { onboardingDone, startOnboarding, stepOnboarding, type OnboardState } from "./onboarding.js";
 import type { Runner, RunHandle } from "./runner.js";
 import { COMPACT_BANNER } from "./splash.js";
@@ -31,6 +33,7 @@ const SIDEBAR_WIDTH = 30;
 const MIN_COLS_FOR_SIDEBAR = 80;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const THINKS: Routed["intent"][] = ["performance", "waste", "scale", "trust"];
+const PROBE_TASK = "Reply with the single word OK.";
 
 const FEED_COLOR: Record<FeedTone, { color?: string; dim?: boolean; bold?: boolean }> = {
   normal: {},
@@ -107,6 +110,10 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const [dash, setDash] = useState<Dashboard>(emptyDashboard);
   const dashRef = useRef<Dashboard>(dash);
   const [busy, setBusy] = useState<string | null>(null);
+  /** While set, typed text is a secret key: kept out of the prompt, the feed and the history. */
+  const [secretProvider, setSecretProvider] = useState<string | null>(null);
+  const secretBuf = useRef("");
+  const [secretLen, setSecretLen] = useState(0);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
   const cancelled = useRef(false);
@@ -157,8 +164,8 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
 
   /** A runner that remembers the child it started, so Esc and quit can stop it. */
   const tracked = useCallback<Runner>(
-    (argv, onChunk) => {
-      const handle = runner(argv, onChunk);
+    (argv, onChunk, options) => {
+      const handle = runner(argv, onChunk, options);
       running.current = handle;
       return handle;
     },
@@ -241,6 +248,42 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
     [add, baseFolder, refresh, tracked],
   );
 
+  /** Store the pasted key through the CLI (stdin only), then prove it works with one tiny question. */
+  const finishConnect = useCallback(
+    (provider: string, value: string) => {
+      const lang = langRef.current;
+      const dir = wsRef.current;
+      if (value === "") return void add("err", pick(lang)("No key entered; nothing was stored.", "ما دخلت مفتاح؛ ما انحفظ شي."));
+      let err = "";
+      cancelled.current = false;
+      setBusy(pick(lang)("saving the key", "أحفظ المفتاح"));
+      void tracked(["auth", "set", provider], (chunk, stream) => {
+        if (stream === "err") err += chunk;
+      }, { stdin: value }).done.then(({ code }) => {
+        if (code !== 0) {
+          running.current = null;
+          setBusy(null);
+          return void add("err", `${pick(lang)("I couldn't store the key:", "ما قدرت أحفظ المفتاح:")} ${err.trim().split("\n")[0] ?? ""}`);
+        }
+        if (dir === null) {
+          running.current = null;
+          setBusy(null);
+          return void add("info", pick(lang)("Key stored. Once a workspace is set up, ask me something to test it.", "انحفظ المفتاح. بعد ما تجهز مساحة العمل اسألني أي شي لتجربته."));
+        }
+        setBusy(pick(lang)("testing the key", "أجرّب المفتاح"));
+        let out = "";
+        void tracked(["run", "--workspace", dir, "--", PROBE_TASK], (chunk) => void (out += chunk)).done.then(({ code: probe }) => {
+          running.current = null;
+          setBusy(null);
+          const failure = probe !== 0 ? classifyModelFailure(out) : null;
+          if (failure) return void add("answer", renderAnswer(modelErrorAnswer(failure, lang), lang));
+          add("info", pick(lang)(`Connected: ${provider} works.`, `تم الاتصال: ${provider} يشتغل.`));
+        });
+      });
+    },
+    [add, tracked],
+  );
+
   const runShortcut = useCallback(
     (text: string) => {
       const resolved = resolveInput(parseInput(text), wsRef.current);
@@ -250,6 +293,12 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         if (resolved.action === "quit") return quit();
         if (resolved.action === "clear") return void setEntries([]);
         if (resolved.action === "help") return void add("out", shortcutsText());
+        if (resolved.action === "connect") {
+          secretBuf.current = "";
+          setSecretLen(0);
+          setSecretProvider(resolved.provider);
+          return void add("info", pick(langRef.current)(`Paste your ${resolved.provider} key now. It is hidden and goes straight to your system keychain. Enter saves, Esc cancels.`, `الصق مفتاح ${resolved.provider} الحين. يبقى مخفياً ويروح مباشرة لمفاتيح النظام. Enter للحفظ وEsc للإلغاء.`));
+        }
         return void refresh().then(() => add("info", pick(langRef.current)("Side panel refreshed.", "تم تحديث اللوحة الجانبية.")));
       }
       if (running.current) return void add("err", pick(langRef.current)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
@@ -297,6 +346,29 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
 
   useInput((typed, key) => {
     if (key.ctrl && typed === "c") return quit();
+    if (secretProvider !== null) {
+      if (key.escape) {
+        secretBuf.current = "";
+        setSecretLen(0);
+        setSecretProvider(null);
+        return void add("info", pick(langRef.current)("Cancelled; nothing was stored.", "تم الإلغاء؛ ما انحفظ شي."));
+      }
+      if (key.return) {
+        const value = cleanPastedSecret(secretBuf.current);
+        const provider = secretProvider;
+        secretBuf.current = "";
+        setSecretLen(0);
+        setSecretProvider(null);
+        return finishConnect(provider, value);
+      }
+      if (key.backspace || key.delete) {
+        secretBuf.current = secretBuf.current.slice(0, -1);
+        return void setSecretLen(secretBuf.current.length);
+      }
+      if (key.ctrl || key.meta || typed === "") return;
+      secretBuf.current += typed;
+      return void setSecretLen(secretBuf.current.length);
+    }
     if (key.ctrl && typed === "l") return void setEntries([]);
     if (key.escape) return cancel();
     if (key.pageUp) return void setOffset((o) => Math.min(o + Math.max(1, bodyHeight - 4), Math.max(0, lines.length - (bodyHeight - 2))));
@@ -338,7 +410,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const sidebar = rawPanel === null ? null : (rawPanel.length > panelRows ? rawPanel.filter((l) => l.text !== "") : rawPanel).slice(0, panelRows);
   const where = dash.workspace ? `${dash.workspace.name} · ${dash.workspace.currency}` : ws === null ? "setting up" : "";
   const scrolled = view.offset > 0 ? `↑ scrolled back ${view.offset} lines (${view.more} above) · PgDn returns` : null;
-  const idle = onboardRef.current !== null ? pick(lang)("Answer the questions above · Ctrl+C quits", "جاوب على الأسئلة أعلاه · Ctrl+C للخروج") : pick(lang)("Ask me anything · type a number to pick a suggestion · / for shortcuts", "اسألني أي شي · اكتب رقم لاختيار اقتراح · / للاختصارات");
+  const idle = secretProvider !== null ? pick(lang)("Paste the key · Enter saves · Esc cancels", "الصق المفتاح · Enter للحفظ · Esc للإلغاء") : onboardRef.current !== null ? pick(lang)("Answer the questions above · Ctrl+C quits", "جاوب على الأسئلة أعلاه · Ctrl+C للخروج") : pick(lang)("Ask me anything · type a number to pick a suggestion · / for shortcuts", "اسألني أي شي · اكتب رقم لاختيار اقتراح · / للاختصارات");
   const status = [busy !== null ? `${SPINNER[tick % SPINNER.length]} ${busy} · Esc stops` : null, scrolled].filter(Boolean).join(" · ") || idle;
 
   return (
@@ -383,8 +455,8 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         <Text dimColor>{status}</Text>
       </Box>
       <Box borderStyle="single" borderColor={busy !== null ? "gray" : "white"} paddingX={1}>
-        <Text bold>❯ </Text>
-        <Text>{input}</Text>
+        <Text bold>{secretProvider !== null ? "🔒 " : "❯ "}</Text>
+        <Text>{secretProvider !== null ? "•".repeat(Math.min(secretLen, 60)) : input}</Text>
         <Text>▌</Text>
       </Box>
     </Box>

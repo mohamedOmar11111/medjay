@@ -68,3 +68,14 @@ describe("resolveInput", () => {
     expect(names).toEqual(expect.arrayContaining(["help", "status", "scout", "diagnose", "simulate", "media", "plan", "ledger", "doctor", "clear", "quit"]));
   });
 });
+
+describe("/connect", () => {
+  it("resolves to a local action with a known provider, defaulting to anthropic", () => {
+    expect(resolveInput(parseInput("/connect openai"), null)).toEqual({ kind: "local", action: "connect", provider: "openai" });
+    expect(resolveInput(parseInput("/connect"), null)).toEqual({ kind: "local", action: "connect", provider: "anthropic" });
+  });
+  it("refuses anything that is not a provider name, so a key typed here is never treated as a command", () => {
+    expect(resolveInput(parseInput("/connect sk-ant-abc"), null)).toMatchObject({ kind: "error" });
+    expect(resolveInput(parseInput("/connect google extra"), null)).toMatchObject({ kind: "error" });
+  });
+});
