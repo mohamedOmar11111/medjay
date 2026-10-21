@@ -14,6 +14,8 @@ const LABELS: Record<string, string> = {
   growth_diagnose: "Diagnosis",
   growth_context: "Your context",
   growth_simulate: "Simulation",
+  skill_search: "Skill search",
+  skill_load: "Skill",
 };
 
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
@@ -80,6 +82,13 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       if (result.status === "insufficient_inputs") return { label, summary: `missing ${plural(Array.isArray(result.problems) ? result.problems.length : 0, "number")}` };
       return { label, summary: String(result.status ?? "done") };
     }
+    case "skill_search": {
+      const matches = Array.isArray(out.matches) ? (out.matches as { name?: unknown }[]) : [];
+      if (matches.length === 0) return { label, summary: `no match among ${num(out.searched)}` };
+      return { label, summary: `${plural(matches.length, "match", "matches")}: ${matches.slice(0, 3).map((m) => String(m.name)).join(", ")}` };
+    }
+    case "skill_load":
+      return { label, summary: `${String(out.name ?? "skill")} (${String(out.source ?? "?")}, ${out.trust === "owned" ? "yours" : "from another author"})` };
     default:
       return { label, summary: "done" };
   }

@@ -50,3 +50,15 @@ describe("cardFor the growth tools", () => {
     expect(cardFor("growth_diagnose", {}, undefined, false, "failed")).toEqual({ label: "Diagnosis", summary: "failed (failed)" });
   });
 });
+
+describe("cardFor the skill tools", () => {
+  it("search: how many matches and the best names", () => {
+    const out = { matches: [{ name: "gd-m09-email-lifecycle-planner" }, { name: "emails" }, { name: "cold-email" }], searched: 145 };
+    expect(cardFor("skill_search", { query: "email sequence" }, out, true)).toEqual({ label: "Skill search", summary: "3 matches: gd-m09-email-lifecycle-planner, emails, cold-email" });
+    expect(cardFor("skill_search", {}, { matches: [], searched: 145 }, true).summary).toBe("no match among 145");
+  });
+  it("load: which skill and whose it is", () => {
+    expect(cardFor("skill_load", {}, { name: "gd-m09-email-lifecycle-planner", source: "hq", trust: "owned" }, true)).toEqual({ label: "Skill", summary: "gd-m09-email-lifecycle-planner (hq, yours)" });
+    expect(cardFor("skill_load", {}, { name: "x", source: "market", trust: "third_party" }, true).summary).toBe("x (market, from another author)");
+  });
+});
