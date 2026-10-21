@@ -97,3 +97,21 @@ describe("mdj skill link / skills list / show / doctor / skill unlink", () => {
     expect(missing.stderr).toMatch(/not a folder/);
   });
 });
+
+describe("mdj mount add / list / remove", () => {
+  it("adds a named read-only folder, lists it, refuses duplicates and non-folders, and removes it", async () => {
+    const add = await mdj("mount", "add", "hq", hq, "--trust", "owner", "--workspace", ws);
+    expect(add.code).toBe(0);
+    expect(add.stdout).toMatch(/mounted hq/);
+    expect(await readFile(join(ws, "workspace.yaml"), "utf8")).toMatch(/name: hq/);
+    const list = await mdj("mount", "list", "--workspace", ws);
+    expect(list.stdout).toMatch(/hq\s+owner\s+/);
+    expect(list.stdout).toContain("hq:");
+    expect((await mdj("mount", "add", "hq", hq, "--workspace", ws)).stderr).toMatch(/already mounted/);
+    expect((await mdj("mount", "add", "c", hq, "--workspace", ws)).code).toBe(1);
+    expect((await mdj("mount", "add", "nope", join(root, "nowhere"), "--workspace", ws)).stderr).toMatch(/not a folder/);
+    expect((await mdj("mount", "remove", "hq", "--workspace", ws)).code).toBe(0);
+    expect((await mdj("mount", "list", "--workspace", ws)).stdout).toMatch(/No folders mounted/);
+    expect((await verifyLedger(join(ws, ".medjay", "audit-log.jsonl"))).ok).toBe(true);
+  });
+});

@@ -37,13 +37,13 @@ function toolLines(s: SkillEntry): string[] {
   ];
 }
 
-/** Edit skills.paths in workspace.yaml, keeping the owner's comments, and undo it if the file stops loading. */
-async function editLinkedPaths(dir: string, change: (current: LinkedPath[]) => LinkedPath[]): Promise<void> {
+/** Edit a list in workspace.yaml, keeping the owner's comments, and undo it if the file stops loading. */
+async function editList<T>(dir: string, keys: string[], change: (current: T[]) => T[]): Promise<void> {
   const file = join(dir, "workspace.yaml");
   const original = await readFile(file, "utf8");
   const doc = parseDocument(original);
-  const current = ((doc.toJS() as { skills?: { paths?: LinkedPath[] } }).skills?.paths ?? []) as LinkedPath[];
-  doc.setIn(["skills", "paths"], change(current));
+  const current = (keys.reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], doc.toJS()) ?? []) as T[];
+  doc.setIn(keys, change(current));
   await writeFile(file, doc.toString());
   try {
     await loadWorkspace(dir);
@@ -128,7 +128,7 @@ export function registerSkillsCommands(program: Command): void {
         const target = resolve(expandHome(path));
         if (!(await stat(target).then((s) => s.isDirectory(), () => false))) throw new Error(`${target} is not a folder`);
         const label = opts.name ?? (basename(target) || "linked");
-        await editLinkedPaths(dir, (current) => {
+        await editList<LinkedPath>(dir, ["skills", "paths"], (current) => {
           if (current.some((c) => same(c.path, target))) throw new Error(`${target} is already linked`);
           return [...current, { path: target, trust: opts.trust, ...(opts.name ? { name: opts.name } : {}) }];
         });
@@ -145,13 +145,77 @@ export function registerSkillsCommands(program: Command): void {
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
         const target = resolve(expandHome(path));
-        await editLinkedPaths(dir, (current) => {
+        await editList<LinkedPath>(dir, ["skills", "paths"], (current) => {
           const next = current.filter((c) => !same(c.path, target) && c.name !== path);
           if (next.length === current.length) throw new Error(`${target} is not linked`);
           return next;
         });
         await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "skills.unlinked", payload: { path: target } });
         out(`unlinked ${target}`);
+      }),
+    );
+}
+
+interface MountItem {
+  name: string;
+  path: string;
+  trust: "owner" | "untrusted";
+}
+
+export function registerMountCommands(program: Command): void {
+  const mount = program.command("mount").description("folders outside the workspace a run may read (read-only), written as name:path");
+
+  mount
+    .command("add <name> <path>")
+    .description("let runs read a folder, for example your HQ repo, as name:path (nothing is copied or written)")
+    .addOption(new Option("--trust <level>", "owner: your own words; untrusted: someone else's, handled with care").choices(["owner", "untrusted"]).default("untrusted"))
+    .option("--workspace <dir>", "workspace folder")
+    .action((name: string, path: string, opts: { trust: "owner" | "untrusted"; workspace?: string }) =>
+      guarded(async () => {
+        const dir = await workspaceDirOrThrow(opts.workspace);
+        if (!/^[a-z][a-z0-9_-]+$/.test(name)) throw new Error("a mount name is at least two characters: lowercase letters, digits, dash or underscore");
+        const target = resolve(expandHome(path));
+        if (!(await stat(target).then((s) => s.isDirectory(), () => false))) throw new Error(`${target} is not a folder`);
+        await editList<MountItem>(dir, ["mounts"], (current) => {
+          if (current.some((m) => m.name === name)) throw new Error(`${name} is already mounted`);
+          return [...current, { name, path: target, trust: opts.trust }];
+        });
+        await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "mount.added", payload: { name, path: target, trust: opts.trust } });
+        out(`mounted ${name} (${opts.trust}): ${target}\nRuns read it as ${name}:<path>, read-only.`);
+      }),
+    );
+
+  mount
+    .command("list")
+    .description("the mounted folders")
+    .option("--workspace <dir>", "workspace folder")
+    .action((opts: { workspace?: string }) =>
+      guarded(async () => {
+        const dir = await workspaceDirOrThrow(opts.workspace);
+        const { config } = await loadWorkspace(dir);
+        if (config.mounts.length === 0) {
+          out("No folders mounted. mdj mount add <name> <path> lets runs read one, read-only.");
+          return;
+        }
+        out(`${"NAME".padEnd(14)}${"TRUST".padEnd(12)}PATH`);
+        for (const m of config.mounts) out(`${m.name.padEnd(14)}${m.trust.padEnd(12)}${m.path}   (read as ${m.name}:)`);
+      }),
+    );
+
+  mount
+    .command("remove <name>")
+    .description("stop letting runs read a mounted folder (nothing is deleted)")
+    .option("--workspace <dir>", "workspace folder")
+    .action((name: string, opts: { workspace?: string }) =>
+      guarded(async () => {
+        const dir = await workspaceDirOrThrow(opts.workspace);
+        await editList<MountItem>(dir, ["mounts"], (current) => {
+          const next = current.filter((m) => m.name !== name);
+          if (next.length === current.length) throw new Error(`${name} is not mounted`);
+          return next;
+        });
+        await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "mount.removed", payload: { name } });
+        out(`unmounted ${name}`);
       }),
     );
 }
