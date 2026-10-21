@@ -8,7 +8,7 @@ import type { SimulationResult } from "../analysis/simulate.js";
 import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, modelErrorAnswer, performanceAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
-import { classifyModelFailure } from "./model-errors.js";
+import { classifyModelFailure, type ModelFailure } from "./model-errors.js";
 import { lineSplitter } from "./lines.js";
 import { parseEventLine, type RunEvent } from "../run-events.js";
 import type { Runner } from "./runner.js";
@@ -32,6 +32,8 @@ export interface AskContext {
 export interface Reply {
   text: string;
   suggestions: Suggestion[];
+  /** Set when the answer is really a model-connection problem, so a caller can fall back. */
+  modelFailure?: ModelFailure;
 }
 
 const reply = (a: Answer, lang: Language, extra: string[] = []): Reply => ({ text: renderAnswer({ ...a, body: [...a.body, ...extra] }, lang), suggestions: a.next });
@@ -107,13 +109,18 @@ export async function answerIntent(routed: Routed, ctx: AskContext): Promise<Rep
   }
 }
 
+const CHAT_PREFIX: Record<Language, string> = {
+  en: "You are Medjay, a friendly growth assistant for a busy marketer. The user is chatting. Reply warmly in one or two short sentences, in their language, then offer one concrete thing you could look at in their ads. Do not list a menu. They said: ",
+  ar: "أنت Medjay، مساعد نمو ودود لمسوّق مشغول. المستخدم يتحدث معك. رد بجملة أو جملتين بكلام بسيط وودي، ثم اقترح شيئاً واحداً محدداً تقدر تراجعه في إعلاناته. بدون قوائم. قال: ",
+};
+
 const TASK_PREFIX: Record<Language, string> = {
   en: 'Answer for a busy marketer: plain words, lead with the money impact, no jargon (say "revenue per ad dollar", not MER). Question: ',
   ar: "أجب بالعربية وبكلمات بسيطة لمسوّق مشغول: ابدأ بأثر المال ولا تستخدم مصطلحات تقنية. السؤال: ",
 };
 
 /** Hand an open question to the agent. Progress arrives as events while it works; the answer is the final event. */
-export async function askAgent(text: string, ctx: AskContext): Promise<Reply> {
+export async function askAgent(text: string, ctx: AskContext, tone: "task" | "chat" = "task"): Promise<Reply> {
   const state: { finished: Extract<RunEvent, { type: "run.finished" }> | null; runId: string | null; stray: string; err: string } = { finished: null, runId: null, stray: "", err: "" };
   const split = lineSplitter((line) => {
     const event = parseEventLine(line);
@@ -129,20 +136,20 @@ export async function askAgent(text: string, ctx: AskContext): Promise<Reply> {
       // a bug in the live view must not lose the answer
     }
   });
-  const { code } = await ctx.runner(["run", "--events", "--workspace", ctx.workspaceDir, "--", `${TASK_PREFIX[ctx.lang]}${text}`], (chunk, stream) => (stream === "out" ? split.push(chunk) : void (state.err += chunk))).done;
+  const { code } = await ctx.runner(["run", "--events", "--workspace", ctx.workspaceDir, "--", `${(tone === "chat" ? CHAT_PREFIX : TASK_PREFIX)[ctx.lang]}${text}`], (chunk, stream) => (stream === "out" ? split.push(chunk) : void (state.err += chunk))).done;
   split.end();
   const lang = ctx.lang;
   const fin = state.finished;
   if (fin === null) {
     // the command ended before it could report: explain from whatever it printed
     const failure = code !== 0 ? classifyModelFailure(`${state.err}\n${state.stray}`) : null;
-    if (failure) return reply(modelErrorAnswer(failure, lang), lang);
+    if (failure) return { ...reply(modelErrorAnswer(failure, lang), lang), modelFailure: failure };
     if (code !== 0) return reply(errorAnswer(lang, firstLine({ code, out: state.stray, err: state.err })), lang);
     return { text: state.stray.trim(), suggestions: helpAnswer(lang, false).next.slice(0, 4) };
   }
   if (fin.error) {
     const failure = classifyModelFailure(`${fin.error.kind}: ${fin.error.message}`);
-    return failure ? reply(modelErrorAnswer(failure, lang), lang) : reply(errorAnswer(lang, fin.error.message), lang);
+    return failure ? { ...reply(modelErrorAnswer(failure, lang), lang), modelFailure: failure } : reply(errorAnswer(lang, fin.error.message), lang);
   }
   const suggestions = helpAnswer(lang, false).next.slice(0, 4);
   if (fin.status !== "completed") {

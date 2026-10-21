@@ -295,6 +295,35 @@ describe("live step cards", () => {
   });
 });
 
+describe("greetings go to the model", () => {
+  const ev = (e: RunEvent) => encodeEvent(e);
+  const FIN = (over: Partial<Extract<RunEvent, { type: "run.finished" }>>): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "", proposals: 0, ...over });
+
+  it("answers 'hello' with the model's own words in a chat tone, not the fixed greeting and menu", async () => {
+    const t = mount();
+    await t.send("hello");
+    expect(t.calls[0]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
+    expect(t.calls[0]!.argv[5]).toContain("chatting");
+    t.calls[0]!.emit(ev(FIN({ final_text: "Hey! Good to see you. Want me to look at last week's spend?" })));
+    t.calls[0]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("Good to see you");
+    expect(t.frame().split("Ask me in your own words").length - 1).toBe(1); // only the opening greeting, no second copy
+    t.unmount();
+  });
+
+  it("falls back to the fixed greeting, with a connect hint, when no model is connected", async () => {
+    const t = mount();
+    await t.send("hello");
+    t.calls[0]!.emit(ev(FIN({ status: "failed", steps: 0, error: { kind: "auth", message: 'all model targets failed: openai/x (auth: no API key for openai: store one with "mdj auth set openai")' } })));
+    t.calls[0]!.finish(1);
+    await wait(150);
+    expect(t.frame()).toContain("Hi! I'm Medjay");
+    expect(t.frame()).toContain("/connect openai");
+    t.unmount();
+  });
+});
+
 describe("first run", () => {
   it("asks setup questions in English and Arabic, then creates the workspace through the CLI and starts using it", async () => {
     const t = mount({ workspaceDir: null });

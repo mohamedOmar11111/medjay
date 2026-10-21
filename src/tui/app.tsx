@@ -188,11 +188,12 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
     (routed: Routed | null, text: string, lang: Language) => {
       const dir = wsRef.current;
       if (dir === null) return;
-      const thinking = routed === null || THINKS.includes(routed.intent);
+      const viaAgent = routed === null || routed.intent === "greet";
+      const thinking = viaAgent || THINKS.includes(routed.intent);
       cancelled.current = false;
       if (thinking) {
         setBusy(pick(lang)("looking", "أراجع"));
-        add("info", pick(lang)(routed === null ? "Thinking about that…" : "Looking at your numbers…", routed === null ? "أفكر في سؤالك…" : "أراجع أرقامك…"));
+        add("info", pick(lang)(viaAgent ? "Thinking about that…" : "Looking at your numbers…", viaAgent ? "أفكر في سؤالك…" : "أراجع أرقامك…"));
       }
       void (async () => {
         try {
@@ -208,7 +209,13 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
             }
           };
           const ctx: AskContext = { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current, onEvent };
-          const reply = routed === null ? await askAgent(text, ctx) : await answerIntent(routed, ctx);
+          let reply = routed === null ? await askAgent(text, ctx) : routed.intent === "greet" ? await askAgent(text, ctx, "chat") : await answerIntent(routed, ctx);
+          if (routed?.intent === "greet" && reply.modelFailure) {
+            // no usable model: the fixed greeting still works, plus the one thing to do about it
+            const hint = modelErrorAnswer(reply.modelFailure, lang);
+            reply = await answerIntent(routed, ctx);
+            add("info", [hint.headline, hint.body[0] ?? ""].join(" ").trim());
+          }
           if (routed?.intent === "language" && routed.params.language) langRef.current = routed.params.language;
           if (cancelled.current) add("info", pick(lang)("Stopped.", "تم الإيقاف."));
           else showReply(reply);
