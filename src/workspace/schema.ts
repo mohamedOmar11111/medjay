@@ -213,6 +213,17 @@ export const WorkspaceSchema = z
       .strict()
       .prefault({}),
     command_bridge: z.object({ whatsapp: WhatsApp.prefault({}) }).strict().prefault({}),
+    /** Named, read-only folders outside the workspace a run may read as name:path (for example the owner's HQ repo). */
+    mounts: z
+      .array(z.object({ name: z.string().regex(/^[a-z][a-z0-9_-]+$/, "at least two characters: lowercase letters, digits, dash or underscore"), path: z.string().min(1).max(500), trust: z.enum(["owner", "untrusted"]).default("untrusted") }).strict())
+      .default([])
+      .superRefine((mounts, ctx) => {
+        const seen = new Set<string>();
+        mounts.forEach((m, i) => {
+          if (seen.has(m.name)) ctx.addIssue({ code: "custom", path: [i, "name"], message: `duplicate mount name "${m.name}"` });
+          seen.add(m.name);
+        });
+      }),
     /** Where skills (SKILL.md folders) are found besides the workspace and ~/.medjay. Nothing outside these is read. */
     skills: z
       .object({

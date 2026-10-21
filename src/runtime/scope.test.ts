@@ -183,3 +183,72 @@ describe("RunScope.list", () => {
     expect(names).not.toContain("imports");
   });
 });
+
+describe("RunScope mounts (named, read-only folders outside the workspace)", () => {
+  async function withMount(trust: "owner" | "untrusted" = "owner", name = "m") {
+    const dir = await workspace(name);
+    const hq = join(root, "hq");
+    await mkdir(join(hq, "03_Global_Assets", "frameworks"), { recursive: true });
+    await writeFile(join(hq, "03_Global_Assets", "frameworks", "standards.md"), "evidence rules", "utf8");
+    await writeFile(join(hq, ".env"), "SECRET=1", "utf8");
+    await mkdir(join(hq, ".git"), { recursive: true });
+    await writeFile(join(hq, ".git", "config"), "x", "utf8");
+    await mkdir(join(hq, "secrets"), { recursive: true });
+    await writeFile(join(hq, "secrets", "keys.md"), "k", "utf8");
+    const scope = await scopeFor(dir, { mounts: [{ name: "hq", path: hq, trust }] });
+    return { dir, hq, scope };
+  }
+
+  it("reads a file through the mount name, stamped with the mount in its source", async () => {
+    const { scope } = await withMount();
+    const r = await scope.readText("hq:03_Global_Assets/frameworks/standards.md");
+    expect(r.text).toBe("evidence rules");
+    expect(r.source).toBe("file:hq:03_Global_Assets/frameworks/standards.md");
+    expect(() => scope.assertAllowed("hq:03_Global_Assets/frameworks/standards.md")).not.toThrow();
+  });
+
+  it("lists a mount folder, and the mount itself appears at the top level", async () => {
+    const { scope } = await withMount();
+    expect((await scope.list("hq:03_Global_Assets")).map((e) => e.name)).toEqual(["frameworks"]);
+    expect((await scope.list("")).map((e) => e.name)).toContain("hq:");
+  });
+
+  it("refuses .., absolute paths, an unknown mount, machine state, secrets and a drive-letter lookalike", async () => {
+    const { scope } = await withMount();
+    expect(await code(scope.readText("hq:../outside.md"))).toBe("outside");
+    expect(await code(scope.readText("hq:/etc/passwd"))).toBe("outside");
+    expect(await code(scope.readText("zz:whatever"))).toBe("denied");
+    expect(await code(scope.readText("hq:.git/config"))).toBe("denied");
+    expect(await code(scope.readText("hq:.env"))).toBe("denied");
+    expect(await code(scope.readText("hq:secrets/keys.md"))).toBe("denied");
+    expect(() => scope.assertAllowed("zz:whatever")).toThrow(ScopeError);
+    expect(await code(scope.readText("c:foo.txt"))).toBe("denied");
+  });
+
+  it("does not follow a link that leads out of the mount", async () => {
+    const { scope, hq } = await withMount();
+    const outside = join(root, "outside");
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, "secret.md"), "nope", "utf8");
+    try {
+      await symlink(outside, join(hq, "escape"), "junction");
+    } catch {
+      return;
+    }
+    expect(await code(scope.readText("hq:escape/secret.md"))).toBe("outside");
+  });
+
+  it("reports the trust of a mount: owner is the owner's own words, anything else is untrusted", async () => {
+    const owner = await withMount("owner");
+    expect(owner.scope.isOwnerText("hq:03_Global_Assets/frameworks/standards.md")).toBe(true);
+    expect(owner.scope.isOwnerText("context/note.md")).toBe(true);
+    const other = await withMount("untrusted", "m2");
+    expect(other.scope.isOwnerText("hq:03_Global_Assets/frameworks/standards.md")).toBe(false);
+  });
+
+  it("a mount whose folder does not exist is simply not mounted", async () => {
+    const dir = await workspace("n");
+    const scope = await scopeFor(dir, { mounts: [{ name: "gone", path: join(root, "nowhere"), trust: "owner" }] });
+    expect(await code(scope.readText("gone:x.md"))).toBe("denied");
+  });
+});

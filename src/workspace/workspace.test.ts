@@ -447,3 +447,30 @@ describe("skills and plugins sections", () => {
     expect(issues.some((i) => i.path === "skills.colour")).toBe(true);
   });
 });
+
+describe("mounts section", () => {
+  it("defaults to none, and accepts named read-only folders with a trust level", async () => {
+    const dir = await make();
+    expect((await loadWorkspace(dir)).config.mounts).toEqual([]);
+    await edit(dir, (c) => {
+      c.mounts = [{ name: "hq", path: "C:/hq", trust: "owner" }, { name: "swipe", path: "~/swipe" }];
+    });
+    expect((await loadWorkspace(dir)).config.mounts).toEqual([{ name: "hq", path: "C:/hq", trust: "owner" }, { name: "swipe", path: "~/swipe", trust: "untrusted" }]);
+  });
+  it("rejects a one-letter name (it would look like a drive), a duplicate name and a bad trust level", async () => {
+    const dir = await make();
+    await edit(dir, (c) => {
+      c.mounts = [{ name: "c", path: "x" }, { name: "zz", path: "y", trust: "friend" }];
+    });
+    const paths = (await issuesOf(dir)).map((i) => i.path);
+    expect(paths.some((p) => p.startsWith("mounts[0]") || p.startsWith("mounts.0"))).toBe(true);
+    expect(paths.some((p) => p.startsWith("mounts") && p.includes("trust"))).toBe(true);
+  });
+  it("rejects the same mount name twice", async () => {
+    const dir = await make();
+    await edit(dir, (c) => {
+      c.mounts = [{ name: "hq", path: "a" }, { name: "hq", path: "b" }];
+    });
+    expect((await issuesOf(dir)).some((i) => /duplicate/i.test(i.message))).toBe(true);
+  });
+});

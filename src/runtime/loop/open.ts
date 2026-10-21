@@ -1,7 +1,7 @@
 // Opens everything a run needs from a workspace folder: config, policy, tools, scope, store, ledger
 // and (unless one is injected) the real model driver. Shared by the CLI and the live tests.
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Ledger } from "../../audit/ledger.js";
 import type { SlotName } from "../../constants.js";
 import { ModelCatalog } from "../../models/catalog.js";
@@ -64,9 +64,12 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
     registry.register(tool);
   }
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
-  const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home: options.home ?? homedir() }));
+  const home = options.home ?? homedir();
+  const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home }));
   if (discovery.skills.length > 0) for (const tool of skillTools(discovery)) registry.register(tool);
-  const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id });
+  const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") || p.startsWith("~\\") ? join(home, p.slice(2)) : p);
+  const mounts = config.mounts.map((m) => ({ name: m.name, path: resolve(expand(m.path)), trust: m.trust }));
+  const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id, mounts });
   const store = Store.open(join(dir, STORE_PATH));
 
   let driver = options.driver;

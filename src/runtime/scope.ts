@@ -24,12 +24,30 @@ const DENIED_NAME = /^\.env(?:\..*)?$|\.(?:pem|key|p12|pfx|jks)$|^signing/i;
 const DEFAULT_MAX_READ_BYTES = 120_000;
 const BINARY_SNIFF_BYTES = 8192;
 
+/** A named, read-only folder outside the workspace (for example the owner's HQ repo), read as `name:path`. */
+export interface ScopeMount {
+  name: string;
+  path: string;
+  /** owner: the owner's own words. untrusted: handled like outside data. */
+  trust: "owner" | "untrusted";
+}
+
 export interface RunScopeOptions {
   workspaceDir: string;
   workspaceId: string;
   client?: string;
   dropzoneDir: string;
   maxReadBytes?: number;
+  mounts?: readonly ScopeMount[];
+}
+
+const MOUNT_REF = /^([a-z][a-z0-9_-]+):(.*)$/s;
+const MOUNT_DENIED_SEGMENT = /^(?:\.medjay|\.git|node_modules|secrets)$/i;
+const MOUNT_DENIED_NAME = /^\.env(?:\..*)?$|\.(?:pem|key|p12|pfx|jks)$|^signing|^credentials/i;
+
+interface Mounted {
+  root: string;
+  trust: "owner" | "untrusted";
 }
 
 export interface ReadResult {
@@ -75,16 +93,81 @@ export class RunScope {
     private readonly root: string,
     private readonly dropzoneRel: string,
     private readonly maxReadBytes: number,
+    private readonly mounts: ReadonlyMap<string, Mounted> = new Map(),
   ) {}
 
   static async create(options: RunScopeOptions): Promise<RunScope> {
+    const mounts = new Map<string, Mounted>();
+    for (const mount of options.mounts ?? []) {
+      if (!/^[a-z][a-z0-9_-]+$/.test(mount.name)) continue;
+      try {
+        const real = await realpath(path.resolve(mount.path));
+        if ((await stat(real)).isDirectory()) mounts.set(mount.name, { root: real, trust: mount.trust });
+      } catch {
+        /* a mount whose folder is not there is simply not mounted */
+      }
+    }
     const root = await realpath(path.resolve(options.workspaceDir));
     const lexicalRoot = path.resolve(options.workspaceDir);
     const dropzoneRel = path.relative(lexicalRoot, path.resolve(options.dropzoneDir)).split(path.sep).join("/");
     if (dropzoneRel === "" || dropzoneRel.startsWith("..") || path.isAbsolute(dropzoneRel)) {
       throw new Error("the dropzone must be a folder inside the workspace");
     }
-    return new RunScope(options.workspaceId, options.client, root, dropzoneRel, options.maxReadBytes ?? DEFAULT_MAX_READ_BYTES);
+    return new RunScope(options.workspaceId, options.client, root, dropzoneRel, options.maxReadBytes ?? DEFAULT_MAX_READ_BYTES, mounts);
+  }
+
+  /** `hq:03_Global_Assets/x.md` becomes the mount and the path inside it; null for an ordinary workspace path. */
+  private mountRef(rel: string): { name: string; inner: string } | null {
+    const m = typeof rel === "string" ? MOUNT_REF.exec(rel) : null;
+    return m ? { name: m[1] as string, inner: m[2] as string } : null;
+  }
+
+  private mountOrThrow(name: string): Mounted {
+    const mounted = this.mounts.get(name);
+    if (!mounted) throw new ScopeError(`"${name}:" is not a mounted folder`, "denied");
+    return mounted;
+  }
+
+  /** The path inside a mount, checked lexically: relative, no "..", no machine state or secrets. */
+  private normalizeInner(inner: string, allowRoot: boolean): string {
+    if (inner.includes("\0")) throw new ScopeError("path contains a null byte", "denied");
+    if (path.win32.isAbsolute(inner) || path.posix.isAbsolute(inner)) throw new ScopeError("absolute paths are not allowed; use a path relative to the mounted folder", "outside");
+    const n = path.posix.normalize(inner.replaceAll("\\", "/")).replace(/^\.\//, "").replace(/\/+$/, "");
+    if (n === ".." || n.startsWith("../")) throw new ScopeError("path escapes the mounted folder", "outside");
+    if (n === "" || n === ".") {
+      if (allowRoot) return "";
+      throw new ScopeError("a file path is required", "denied");
+    }
+    const segments = n.split("/");
+    if (segments.some((s) => MOUNT_DENIED_SEGMENT.test(s))) throw new ScopeError("that folder is never readable by a run", "denied");
+    if (MOUNT_DENIED_NAME.test(segments[segments.length - 1] as string)) throw new ScopeError("files that look like secrets are not readable by a run", "denied");
+    return n;
+  }
+
+  private async resolveMount(name: string, inner: string, kind: "file" | "dir"): Promise<{ abs: string; rel: string }> {
+    const mounted = this.mountOrThrow(name);
+    const n = this.normalizeInner(inner, kind === "dir");
+    let real: string;
+    try {
+      real = await realpath(path.resolve(mounted.root, n));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new ScopeError(`"${name}:${n}" does not exist`, "missing");
+      throw error;
+    }
+    if (!isInside(mounted.root, real)) throw new ScopeError(`"${name}:${n}" resolves outside the mounted folder`, "outside");
+    const relReal = path.relative(mounted.root, real).split(path.sep).join("/");
+    if (relReal.split("/").some((s) => MOUNT_DENIED_SEGMENT.test(s))) throw new ScopeError(`"${name}:${n}" resolves to a location a run may not read`, "outside");
+    const info = await stat(real);
+    if (kind === "file" && !info.isFile()) throw new ScopeError(`"${name}:${n}" is not a file`, "not_file");
+    if (kind === "dir" && !info.isDirectory()) throw new ScopeError(`"${name}:${n}" is not a folder`, "not_dir");
+    return { abs: real, rel: `${name}:${n}` };
+  }
+
+  /** True for the owner's own words: workspace files outside the dropzone, and files from an owner mount. */
+  isOwnerText(rel: string): boolean {
+    const ref = this.mountRef(rel);
+    if (ref) return this.mounts.get(ref.name)?.trust === "owner";
+    return !this.isDropzone(rel);
   }
 
   /** Whether a relative path is in the dropzone, where files come from outside and are untrusted. */
@@ -99,12 +182,19 @@ export class RunScope {
 
   /** Lexical check only (no disk access): used to refuse a path before a tool runs. */
   assertAllowed(rel: string): void {
+    const ref = this.mountRef(rel);
+    if (ref) {
+      this.mountOrThrow(ref.name);
+      this.normalizeInner(ref.inner, true);
+      return;
+    }
     const n = this.normalize(rel, true);
     if (n !== "" && !this.allowed(n)) throw new ScopeError(`"${rel}" is outside what a run may read`, "denied");
   }
 
   async readText(rel: string): Promise<ReadResult> {
-    const { abs, rel: n } = await this.resolve(rel, "file");
+    const ref = this.mountRef(rel);
+    const { abs, rel: n } = ref ? await this.resolveMount(ref.name, ref.inner, "file") : await this.resolve(rel, "file");
     const info = await stat(abs);
     const handle = await open(abs, "r");
     try {
@@ -122,12 +212,14 @@ export class RunScope {
   }
 
   async list(rel: string): Promise<ListEntry[]> {
-    const n = this.normalize(rel, true);
+    const ref = this.mountRef(rel);
+    const n = ref ? "mount" : this.normalize(rel, true);
     if (n === "") return this.listTop();
-    const { abs } = await this.resolve(n, "dir");
+    const mountScoped = ref !== null;
+    const { abs } = ref ? await this.resolveMount(ref.name, ref.inner, "dir") : await this.resolve(n, "dir");
     const out: ListEntry[] = [];
     for (const entry of await readdir(abs, { withFileTypes: true })) {
-      if (entry.isSymbolicLink() || DENIED_SEGMENT.test(entry.name) || DENIED_NAME.test(entry.name)) continue;
+      if (entry.isSymbolicLink() || (mountScoped ? MOUNT_DENIED_SEGMENT.test(entry.name) || MOUNT_DENIED_NAME.test(entry.name) : DENIED_SEGMENT.test(entry.name) || DENIED_NAME.test(entry.name))) continue;
       const info = await stat(path.join(abs, entry.name)).catch(() => undefined);
       if (!info) continue;
       out.push(
@@ -148,6 +240,10 @@ export class RunScope {
     for (const name of READ_FILES) {
       const info = await stat(path.join(this.root, name)).catch(() => undefined);
       if (info?.isFile()) out.push({ name, type: "file", bytes: info.size, as_of: info.mtime.toISOString() });
+    }
+    for (const [name, mounted] of this.mounts) {
+      const info = await stat(mounted.root).catch(() => undefined);
+      if (info?.isDirectory()) out.push({ name: `${name}:`, type: "dir", as_of: info.mtime.toISOString() });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }

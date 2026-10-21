@@ -70,3 +70,20 @@ describe("openRun with skills", () => {
     opened.close();
   });
 });
+
+describe("openRun with mounts", () => {
+  it("lets a run read a mounted folder as name:path, and treats an owner mount as trusted", async () => {
+    const hq = join(root, "hq");
+    await mkdir(join(hq, "03_Global_Assets"), { recursive: true });
+    await writeFile(join(hq, "03_Global_Assets", "standards.md"), "evidence rules", "utf8");
+    const file = join(dir, "workspace.yaml");
+    const config = parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    config.mounts = [{ name: "hq", path: hq, trust: "owner" }];
+    await writeFile(file, stringify(config));
+    const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, home: join(root, "no-home") });
+    expect((await opened.deps.scope.readText("hq:03_Global_Assets/standards.md")).text).toBe("evidence rules");
+    const out = await opened.deps.registry.invoke({ name: "read_file", input: { path: "hq:03_Global_Assets/standards.md" } }, { runId: "r", step: 1, scope: opened.deps.scope });
+    expect(out).toMatchObject({ ok: true, trust: "trusted" });
+    opened.close();
+  });
+});
