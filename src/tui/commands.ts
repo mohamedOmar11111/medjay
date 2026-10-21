@@ -22,6 +22,7 @@ export const COMMANDS: CommandSpec[] = [
   { name: "ledger", usage: "/ledger", summary: "verify the tamper-evident audit ledger" },
   { name: "doctor", usage: "/doctor", summary: "pre-flight checks" },
   { name: "connect", usage: "/connect [anthropic|google|openai|openai_compatible]", summary: "connect an AI model key (typed hidden, stored in your system keychain)" },
+  { name: "expand", usage: "/expand <n>", summary: "show the details behind step card n" },
   { name: "clear", usage: "/clear", summary: "clear the feed" },
   { name: "quit", usage: "/quit", summary: "leave (also Ctrl+C)" },
 ];
@@ -30,6 +31,7 @@ export type Resolution =
   | { kind: "none" }
   | { kind: "local"; action: "help" | "status" | "clear" | "quit" }
   | { kind: "local"; action: "connect"; provider: string }
+  | { kind: "local"; action: "expand"; n: number }
   | { kind: "cli"; argv: string[]; label: string }
   | { kind: "error"; message: string };
 
@@ -118,6 +120,11 @@ function plan(args: string[], ws: string): Resolution {
   return fail("usage: /plan [list | show <number>]");
 }
 
+function expand(args: string[]): Resolution {
+  const n = Number(args[0]);
+  return args.length === 1 && Number.isInteger(n) && n >= 1 ? { kind: "local", action: "expand", n } : fail("usage: /expand <card number>");
+}
+
 export const CONNECT_PROVIDERS = ["anthropic", "google", "openai", "openai_compatible"] as const;
 
 function connect(args: string[]): Resolution {
@@ -144,6 +151,8 @@ export function resolveInput(parsed: Parsed, workspaceDir: string | null): Resol
       return media(args, workspaceDir);
     case "connect":
       return connect(args);
+    case "expand":
+      return expand(args);
   }
   if (!COMMANDS.some((c) => c.name === name)) return fail(`unknown command /${name}; /help lists them`);
   if (workspaceDir === null) return NEEDS_WORKSPACE;

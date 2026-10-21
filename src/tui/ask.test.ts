@@ -156,7 +156,7 @@ describe("askAgent", () => {
 
   it("says plainly when the run stopped at a limit or is waiting, instead of showing nothing", async () => {
     const { ctx } = ctxWith(() => ({ out: stream(finished({ status: "max_steps_reached", steps: 12 })), code: 3 }));
-    expect((await askAgent("hi", ctx)).text).toMatch(/stopped/i);
+    expect((await askAgent("hi", ctx)).text).toMatch(/had to stop before I finished/);
   });
 
   it("uses an Arabic instruction when the question is Arabic", async () => {

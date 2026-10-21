@@ -8,7 +8,7 @@ export interface FeedLine {
   tone: FeedTone;
 }
 
-export type EntryKind = "splash" | "user" | "out" | "err" | "info" | "answer";
+export type EntryKind = "splash" | "user" | "out" | "err" | "info" | "answer" | "card";
 export interface Entry {
   id: number;
   kind: EntryKind;
@@ -33,11 +33,11 @@ export function buildFeedLines(entries: Entry[], width: number): FeedLine[] {
     } else if (entry.kind === "user") {
       for (const l of wrapText(`❯ ${text}`, width)) out.push({ text: l, tone: "user" });
     } else {
-      const tone: FeedTone = entry.kind === "err" ? "err" : entry.kind === "info" ? "dim" : "normal";
+      const tone: FeedTone = entry.kind === "err" ? "err" : entry.kind === "info" || entry.kind === "card" ? "dim" : "normal";
       const body = entry.kind === "err" ? `! ${text}` : text;
       for (const l of wrapText(body, width)) out.push({ text: l, tone });
     }
-    out.push({ text: "", tone: "normal" });
+    if (entry.kind !== "card") out.push({ text: "", tone: "normal" });
   }
   return out;
 }

@@ -4,8 +4,9 @@ import { App, type AppProps } from "./app.js";
 import { emptyDashboard, type Dashboard } from "./dashboard.js";
 import { buildFeedLines } from "./feed.js";
 import type { Runner } from "./runner.js";
+import { encodeEvent, type RunEvent } from "../run-events.js";
 
-const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms = 70) => new Promise((r) => setTimeout(r, ms));
 
 const DASH: Dashboard = {
   ...emptyDashboard(),
@@ -121,9 +122,9 @@ describe("asking in your own words", () => {
     t.calls[0]!.finish(1);
     await wait(80);
     await t.send("write me three headline ideas");
-    expect(t.calls[1]!.argv.slice(0, 4)).toEqual(["run", "--workspace", "/work/etl", "--"]);
-    expect(t.calls[1]!.argv[4]).toContain("no jargon");
-    expect(t.calls[1]!.argv[4]).toContain("Question: write me three headline ideas");
+    expect(t.calls[1]!.argv.slice(0, 5)).toEqual(["run", "--events", "--workspace", "/work/etl", "--"]);
+    expect(t.calls[1]!.argv[5]).toContain("no jargon");
+    expect(t.calls[1]!.argv[5]).toContain("Question: write me three headline ideas");
     t.unmount();
   });
 
@@ -250,6 +251,46 @@ describe("/connect", () => {
     await wait(80);
     expect(t.calls).toHaveLength(1);
     expect(t.frame()).toContain("Cancelled");
+    t.unmount();
+  });
+});
+
+describe("live step cards", () => {
+  const ev = (e: RunEvent) => encodeEvent(e);
+  const FIN: RunEvent = { type: "run.finished", status: "completed", steps: 2, tokens: { input: 10, output: 5 }, cost_usd: 0.001, cost_known: true, final_text: "Here are three headline ideas.", proposals: 0 };
+
+  it("shows each tool call as a numbered card while the agent is still working, then the answer", async () => {
+    const t = mount();
+    await t.send("write me three headline ideas");
+    const call = t.calls[0]!;
+    call.emit(ev({ type: "run.started", run_id: "run_1", slot: "reasoning" }));
+    call.emit(ev({ type: "step.started", step: 1, max_steps: 12 }));
+    call.emit(ev({ type: "tool.started", step: 1, call_id: "c1_1", name: "read_file", class: "read", input_hash: "abc123def456" }));
+    call.emit(ev({ type: "tool.finished", step: 1, call_id: "c1_1", name: "read_file", ok: true, label: "Read file", summary: "context/claims.md · 1 KB" }));
+    await wait();
+    expect(t.frame()).toContain("▸ [1] Read file · context/claims.md · 1 KB");
+    expect(t.frame()).not.toContain("Here are three headline ideas.");
+    call.emit(ev(FIN));
+    call.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("Here are three headline ideas.");
+    t.unmount();
+  });
+
+  it("/expand shows what is behind a card, and says so when there is no such card", async () => {
+    const t = mount();
+    await t.send("write me three headline ideas");
+    const call = t.calls[0]!;
+    call.emit(ev({ type: "tool.started", step: 1, call_id: "c1_1", name: "read_file", class: "read", input_hash: "abc123def456" }));
+    call.emit(ev({ type: "tool.finished", step: 1, call_id: "c1_1", name: "read_file", ok: true, label: "Read file", summary: "context/claims.md · 1 KB" }));
+    call.emit(ev(FIN));
+    call.finish(0);
+    await wait(150);
+    await t.send("/expand 1");
+    expect(t.frame()).toContain("Tool: read_file (read)");
+    expect(t.frame()).toContain("Input fingerprint: abc123def456");
+    await t.send("/expand 9");
+    expect(t.frame()).toContain("There is no card 9");
     t.unmount();
   });
 });

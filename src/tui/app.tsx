@@ -12,6 +12,7 @@ import { ledgerLabel, sidebarLines, emptyDashboard, type Dashboard, type PanelLi
 import { buildFeedLines, splashText, type Entry, type EntryKind, type FeedTone } from "./feed.js";
 import { detectLanguage, routeIntent, toLatinDigits, type Language, type Routed } from "./intent.js";
 import { classifyModelFailure } from "./model-errors.js";
+import type { RunEvent } from "../run-events.js";
 import { onboardingDone, startOnboarding, stepOnboarding, type OnboardState } from "./onboarding.js";
 import type { Runner, RunHandle } from "./runner.js";
 import { COMPACT_BANNER } from "./splash.js";
@@ -113,6 +114,8 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   /** While set, typed text is a secret key: kept out of the prompt, the feed and the history. */
   const [secretProvider, setSecretProvider] = useState<string | null>(null);
   const secretBuf = useRef("");
+  /** Details behind each step card, for /expand. */
+  const cards = useRef<string[][]>([]);
   const [secretLen, setSecretLen] = useState(0);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
@@ -194,7 +197,17 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
       void (async () => {
         try {
           if (routed !== null && !THINKS.includes(routed.intent)) await refresh();
-          const ctx: AskContext = { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current };
+          const started = new Map<string, Extract<RunEvent, { type: "tool.started" }>>();
+          const onEvent = (e: RunEvent) => {
+            if (e.type === "step.started") setBusy(pick(lang)(`working · step ${e.step}`, `أشتغل · خطوة ${e.step}`));
+            else if (e.type === "tool.started") started.set(e.call_id, e);
+            else if (e.type === "tool.finished") {
+              const s = started.get(e.call_id);
+              cards.current.push([`Tool: ${e.name} (${s?.class ?? "tool"})`, `Call: ${e.call_id} · step ${e.step}`, `Input fingerprint: ${s?.input_hash ?? "n/a"}`, `Result: ${e.ok ? "ok" : `failed (${e.error_kind ?? "error"})`}`, `Summary: ${e.summary}`]);
+              add("card", `▸ [${cards.current.length}] ${e.label} · ${e.summary}`);
+            }
+          };
+          const ctx: AskContext = { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current, onEvent };
           const reply = routed === null ? await askAgent(text, ctx) : await answerIntent(routed, ctx);
           if (routed?.intent === "language" && routed.params.language) langRef.current = routed.params.language;
           if (cancelled.current) add("info", pick(lang)("Stopped.", "تم الإيقاف."));
@@ -293,6 +306,10 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         if (resolved.action === "quit") return quit();
         if (resolved.action === "clear") return void setEntries([]);
         if (resolved.action === "help") return void add("out", shortcutsText());
+        if (resolved.action === "expand") {
+          const detail = cards.current[resolved.n - 1];
+          return void (detail ? add("out", detail.join("\n")) : add("err", `There is no card ${resolved.n}. Cards are numbered as they appear in the feed.`));
+        }
         if (resolved.action === "connect") {
           secretBuf.current = "";
           setSecretLen(0);

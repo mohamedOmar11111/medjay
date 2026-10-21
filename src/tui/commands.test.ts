@@ -79,3 +79,12 @@ describe("/connect", () => {
     expect(resolveInput(parseInput("/connect google extra"), null)).toMatchObject({ kind: "error" });
   });
 });
+
+describe("/expand", () => {
+  it("resolves to a local action for a card number and refuses anything else", () => {
+    expect(resolveInput(parseInput("/expand 2"), null)).toEqual({ kind: "local", action: "expand", n: 2 });
+    expect(resolveInput(parseInput("/expand"), null)).toMatchObject({ kind: "error" });
+    expect(resolveInput(parseInput("/expand 0"), null)).toMatchObject({ kind: "error" });
+    expect(resolveInput(parseInput("/expand a"), null)).toMatchObject({ kind: "error" });
+  });
+});
