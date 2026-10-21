@@ -416,3 +416,34 @@ describe("findWorkspace", () => {
     expect(await findWorkspace(root)).toBeNull();
   });
 });
+
+describe("skills and plugins sections", () => {
+  it("default to nothing linked and nothing opted in", async () => {
+    const dir = await make();
+    const { config } = await loadWorkspace(dir);
+    expect(config.skills).toEqual({ paths: [], include_claude_global: false });
+    expect(config.plugins).toEqual({ paths: [], include: [] });
+  });
+
+  it("accept linked roots with a trust level, defaulting to untrusted", async () => {
+    const dir = await make();
+    await edit(dir, (c) => {
+      c.skills = { paths: [{ path: "C:/hq/.claude/skills", trust: "owner", name: "hq" }, { path: "~/more" }], include_claude_global: true };
+      c.plugins = { include: ["caveman@caveman"] };
+    });
+    const { config } = await loadWorkspace(dir);
+    expect(config.skills.paths).toEqual([{ path: "C:/hq/.claude/skills", trust: "owner", name: "hq" }, { path: "~/more", trust: "untrusted" }]);
+    expect(config.skills.include_claude_global).toBe(true);
+    expect(config.plugins.include).toEqual(["caveman@caveman"]);
+  });
+
+  it("rejects an unknown trust level and stray keys", async () => {
+    const dir = await make();
+    await edit(dir, (c) => {
+      c.skills = { paths: [{ path: "x", trust: "friend" }], colour: "red" };
+    });
+    const issues = await issuesOf(dir);
+    expect(issues.some((i) => i.path.startsWith("skills.paths"))).toBe(true);
+    expect(issues.some((i) => i.path === "skills.colour")).toBe(true);
+  });
+});

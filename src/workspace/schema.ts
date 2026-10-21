@@ -213,6 +213,24 @@ export const WorkspaceSchema = z
       .strict()
       .prefault({}),
     command_bridge: z.object({ whatsapp: WhatsApp.prefault({}) }).strict().prefault({}),
+    /** Where skills (SKILL.md folders) are found besides the workspace and ~/.medjay. Nothing outside these is read. */
+    skills: z
+      .object({
+        paths: z.array(z.object({ path: z.string().min(1).max(500), trust: z.enum(["owner", "untrusted"]).default("untrusted"), name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).optional() }).strict()).default([]),
+        /** Opt in to ~/.claude/skills (other people's skills may be in there). */
+        include_claude_global: z.boolean().default(false),
+      })
+      .strict()
+      .prefault({}),
+    /** Plugin folders to read skills, commands, agents and read-only MCP definitions from. Hooks and scripts are never run. */
+    plugins: z
+      .object({
+        paths: z.array(z.string().min(1).max(500)).default([]),
+        /** Installed plugins (name@marketplace) to include; none are included by default. */
+        include: z.array(z.string().min(1).max(100)).default([]),
+      })
+      .strict()
+      .prefault({}),
     style: StyleConfigSchema.prefault({}),
     vault: z
       .object({
