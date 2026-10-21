@@ -98,7 +98,8 @@ export async function ingestDropzone(deps: IngestDeps): Promise<IngestReport> {
         continue;
       }
       const buffer = await readFile(path);
-      const sha256 = createHash("sha256").update(buffer).digest("hex");
+      // the file and the way it is read: a changed mapping must re-read an unchanged file
+      const sha256 = `${createHash("sha256").update(buffer).digest("hex")}:${createHash("sha256").update(JSON.stringify(mapping)).digest("hex").slice(0, 12)}`;
       const known = repo.getSource(sourceId);
       if (known && known.sha256 === sha256) {
         files.push({ ...base, status: "unchanged", rows: known.rows, period: known.period_start && known.period_end ? { start: known.period_start, end: known.period_end } : null, issues: known.issues });

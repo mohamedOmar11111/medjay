@@ -154,3 +154,13 @@ describe("detectMappings on Google Ads summary exports (no date column)", () => 
     expect(d.mappings!.sources).toHaveLength(5);
   });
 });
+
+describe("CRM stage words from Respond.io", () => {
+  it("understands Unassigned, Follow Up and Quoted without a warning", async () => {
+    await writeFile(join(drop, "crm.csv"), ["Contact ID,Created At,Stage,UTM Source,UTM Campaign,Deal Value", "1,2026-10-01,Unassigned,facebook,A,", "2,2026-10-02,Follow Up,facebook,A,", "3,2026-10-03,Quoted,facebook,A,"].join("\n"), "utf8");
+    const d = await detectMappings(drop, "SAR");
+    const crm = d.mappings!.sources.find((s) => s.kind === "crm");
+    expect(crm).toMatchObject({ stage_map: { Unassigned: "lead", "Follow Up": "qualified", Quoted: "booked" } });
+    expect(d.notes.join()).not.toMatch(/not recognized/);
+  });
+});

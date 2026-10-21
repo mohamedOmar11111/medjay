@@ -80,3 +80,14 @@ describe("ingesting period summaries", () => {
     expect(store.database().prepare("SELECT COUNT(*) AS n FROM fact_period WHERE dimension = 'campaign'").get()).toEqual({ n: 0 });
   });
 });
+
+describe("changing the mapping", () => {
+  it("re-reads a file that has not changed when the mapping for it has", async () => {
+    await ingestDropzone(deps);
+    const changed = parseMappings(MAPPINGS.replace("columns: { key: Campaign Name, spend: Cost, conversions: Conversions }", "columns: { key: Campaign Name, spend: Cost }"));
+    const report = await ingestDropzone({ ...deps, mappings: changed });
+    expect(report.files.find((f) => f.mapping_id === "g-campaigns")?.status).toBe("ingested");
+    expect(report.files.find((f) => f.mapping_id === "g-terms")?.status).toBe("unchanged");
+    expect(store.database().prepare("SELECT SUM(conversions) AS c FROM fact_period WHERE dimension = 'campaign'").get()).toEqual({ c: 0 });
+  });
+});

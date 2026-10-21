@@ -65,9 +65,9 @@ const ALIASES: Record<string, string[]> = {
   linkedin: ["linkedin"],
 };
 const STAGE_WORDS: Record<string, "lead" | "qualified" | "booked" | "won" | "lost"> = {
-  lead: "lead", "new lead": "lead", new: "lead", subscriber: "lead",
-  qualified: "qualified", "marketing qualified lead": "qualified", "sales qualified lead": "qualified", mql: "qualified", sql: "qualified",
-  appointment: "booked", booked: "booked", "appointment scheduled": "booked", "meeting booked": "booked",
+  lead: "lead", "new lead": "lead", new: "lead", subscriber: "lead", unassigned: "lead",
+  qualified: "qualified", "follow up": "qualified", "follow-up": "qualified", "marketing qualified lead": "qualified", "sales qualified lead": "qualified", mql: "qualified", sql: "qualified",
+  appointment: "booked", booked: "booked", quoted: "booked", "appointment scheduled": "booked", "meeting booked": "booked",
   won: "won", "closed won": "won", customer: "won", paid: "won",
   lost: "lost", "closed lost": "lost", disqualified: "lost", unqualified: "lost",
 };
