@@ -59,6 +59,38 @@ const AdPlatformSource = z
   })
   .strict();
 
+export const SUMMARY_DIMENSIONS = ["campaign", "search_term", "keyword", "device", "word", "day"] as const;
+export type SummaryDimension = (typeof SUMMARY_DIMENSIONS)[number];
+
+/**
+ * A platform UI export that summarizes a whole period by one dimension (campaign, search term,
+ * device...) and has no date column. The period comes from the file name, for example
+ * "Campaigns(2026.09.01-2026.09.30).csv", or from the dates themselves for the "day" dimension.
+ */
+const AdSummarySource = z
+  .object({
+    id: Id,
+    kind: z.literal("ad_summary"),
+    platform: Id,
+    currency: Currency,
+    file: FileGlob,
+    format: z.literal("csv").default("csv"),
+    delimiter: z.enum([",", ";", "	"]).default(","),
+    skip_rows: z.number().int().min(0).max(50).default(0),
+    dimension: z.enum(SUMMARY_DIMENSIONS),
+    columns: z
+      .object({
+        key: Column,
+        spend: Column,
+        impressions: Column.optional(),
+        clicks: Column.optional(),
+        conversions: Column.optional(),
+        conv_value: Column.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const WebAnalyticsSource = z
   .object({
     id: Id,
@@ -154,9 +186,10 @@ const CrmSource = z
     }
   });
 
-export const SourceSchema = z.discriminatedUnion("kind", [AdPlatformSource, WebAnalyticsSource, CrmSource]);
+export const SourceSchema = z.discriminatedUnion("kind", [AdPlatformSource, AdSummarySource, WebAnalyticsSource, CrmSource]);
 export type SourceMapping = z.infer<typeof SourceSchema>;
 export type AdPlatformMapping = z.infer<typeof AdPlatformSource>;
+export type AdSummaryMapping = z.infer<typeof AdSummarySource>;
 export type WebAnalyticsMapping = z.infer<typeof WebAnalyticsSource>;
 export type CrmMapping = z.infer<typeof CrmSource>;
 

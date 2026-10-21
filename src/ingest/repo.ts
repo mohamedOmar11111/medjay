@@ -1,7 +1,7 @@
 // Storage for normalized facts. Re-ingesting a file replaces everything that came from it, in one
 // transaction, so a half-written import never leaves the numbers inconsistent.
 import type { Store } from "../store/db.js";
-import type { AdFact, CrmFacts, Issue, WebFact } from "./normalize.js";
+import type { AdFact, CrmFacts, Issue, SummaryFact, WebFact } from "./normalize.js";
 
 export interface SourceRecord {
   source_id: string;
@@ -19,6 +19,7 @@ export interface SourceRecord {
 
 export type FactBatch =
   | { kind: "ad_platform"; platform: string; currency: string; facts: AdFact[] }
+  | { kind: "ad_summary"; platform: string; currency: string; dimension: string; period: { start: string; end: string }; facts: SummaryFact[] }
   | { kind: "web_analytics"; facts: WebFact[] }
   | { kind: "crm"; facts: CrmFacts };
 
@@ -54,6 +55,9 @@ export class IngestRepo {
       if (batch.kind === "ad_platform") {
         const insert = db.prepare("INSERT INTO fact_daily (source_id, date, platform, campaign, adset, spend, impressions, clicks, conversions, conv_value, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         for (const f of batch.facts) insert.run(id, f.date, batch.platform, f.campaign, f.adset, f.spend, f.impressions, f.clicks, f.conversions, f.conv_value, batch.currency);
+      } else if (batch.kind === "ad_summary") {
+        const insert = db.prepare("INSERT INTO fact_period (source_id, platform, period_start, period_end, dimension, key, spend, impressions, clicks, conversions, conv_value, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        for (const f of batch.facts) insert.run(id, batch.platform, batch.period.start, batch.period.end, batch.dimension, f.key, f.spend, f.impressions, f.clicks, f.conversions, f.conv_value, batch.currency);
       } else if (batch.kind === "web_analytics") {
         const insert = db.prepare("INSERT INTO web_sessions (source_id, date, landing_page, source, campaign, sessions, key_events) VALUES (?, ?, ?, ?, ?, ?, ?)");
         for (const f of batch.facts) insert.run(id, f.date, f.landing_page, f.source, f.campaign, f.sessions, f.key_events);
@@ -75,7 +79,7 @@ export class IngestRepo {
   }
 
   private deleteFacts(sourceId: string): void {
-    for (const table of ["fact_daily", "web_sessions", "lead_stage_events", "deals", "leads"]) {
+    for (const table of ["fact_daily", "fact_period", "web_sessions", "lead_stage_events", "deals", "leads"]) {
       this.db.prepare(`DELETE FROM ${table} WHERE source_id = ?`).run(sourceId);
     }
   }

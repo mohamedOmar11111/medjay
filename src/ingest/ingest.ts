@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { Ledger } from "../audit/ledger.js";
 import type { Store } from "../store/db.js";
 import type { Mappings, SourceMapping } from "./mapping.js";
-import { normalizeAdPlatform, normalizeCrm, normalizeWebAnalytics, type Issue } from "./normalize.js";
+import { normalizeAdPlatform, normalizeAdSummary, normalizeCrm, normalizeWebAnalytics, type Issue } from "./normalize.js";
 import { IngestRepo, type FactBatch, type SourceRecord } from "./repo.js";
 
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -65,6 +65,10 @@ function normalize(mapping: SourceMapping, file: string, text: string, workspace
     const r = normalizeAdPlatform(file, text, mapping);
     return { batch: { kind: "ad_platform", platform: mapping.platform, currency: mapping.currency, facts: r.facts }, issues: r.issues, rows: r.rows, period: r.period };
   }
+  if (mapping.kind === "ad_summary") {
+    const r = normalizeAdSummary(file, text, mapping);
+    return { batch: { kind: "ad_summary", platform: mapping.platform, currency: mapping.currency, dimension: mapping.dimension, period: r.period ?? { start: "", end: "" }, facts: r.facts }, issues: r.issues, rows: r.rows, period: r.period };
+  }
   if (mapping.kind === "web_analytics") {
     const r = normalizeWebAnalytics(file, text, mapping);
     return { batch: { kind: "web_analytics", facts: r.facts }, issues: r.issues, rows: r.rows, period: r.period };
@@ -109,7 +113,7 @@ export async function ingestDropzone(deps: IngestDeps): Promise<IngestReport> {
       const record: SourceRecord = {
         ...base,
         kind: mapping.kind,
-        platform: mapping.kind === "ad_platform" ? mapping.platform : null,
+        platform: mapping.kind === "ad_platform" || mapping.kind === "ad_summary" ? mapping.platform : null,
         sha256,
         rows: result.rows,
         issues: result.issues,

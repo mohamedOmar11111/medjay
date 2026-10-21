@@ -2,12 +2,12 @@
 // silently: a row that cannot be read is skipped AND reported, a missing required column rejects the
 // whole file. Cells that read like instructions to an AI are flagged (they stay data).
 import { parseCsv } from "./csv.js";
-import type { AdPlatformMapping, CrmMapping, WebAnalyticsMapping } from "./mapping.js";
+import type { AdPlatformMapping, AdSummaryMapping, CrmMapping, WebAnalyticsMapping } from "./mapping.js";
 import { cleanLabel, hashPhone, looksLikeInstruction, toDay, toInstant, toNumber } from "./values.js";
 
 export interface Issue {
   severity: "error" | "warn";
-  kind: "missing_column" | "bad_date" | "bad_number" | "negative_value" | "duplicate_row" | "suspicious_text" | "currency_mismatch" | "empty" | "bad_record" | "unreadable" | "too_large";
+  kind: "missing_column" | "bad_date" | "bad_number" | "negative_value" | "duplicate_row" | "suspicious_text" | "currency_mismatch" | "empty" | "bad_record" | "unreadable" | "too_large" | "no_period";
   file: string;
   row?: number;
   column?: string;
@@ -19,6 +19,14 @@ export interface AdFact {
   date: string;
   campaign: string;
   adset: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  conv_value: number;
+}
+export interface SummaryFact {
+  key: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -200,6 +208,73 @@ export function normalizeAdPlatform(file: string, text: string, m: AdPlatformMap
   }
   const facts = [...merged.values()];
   return { facts, issues: log.finish(), rows, period: periodOf(facts.map((f) => f.date)) };
+}
+
+const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+
+/** "Tue, Sep 1, 2026" (how the Google Ads screen prints a day) or an ISO date, as YYYY-MM-DD. */
+function summaryDay(value: string | undefined): string | undefined {
+  const text = (value ?? "").trim();
+  const m = /^(?:[A-Za-z]{3,9},\s*)?([A-Za-z]{3,9})\.?\s+(\d{1,2}),\s*(\d{4})$/.exec(text);
+  if (m) {
+    const month = MONTHS[(m[1] as string).slice(0, 3).toLowerCase()];
+    if (month !== undefined) return toDay(`${m[3]}-${String(month).padStart(2, "0")}-${(m[2] as string).padStart(2, "0")}`, "iso");
+  }
+  return toDay(text, "iso");
+}
+
+/** Google Ads names UI exports like "Campaigns(2026.09.01-2026.09.30).csv" or "Searches(Search_2026.09.01-2026.09.30).csv": the period is in the name. */
+function periodFromFileName(file: string): { start: string; end: string } | null {
+  const m = /(\d{4})\.(\d{2})\.(\d{2})-(\d{4})\.(\d{2})\.(\d{2})/.exec(file);
+  if (!m) return null;
+  const start = toDay(`${m[1]}-${m[2]}-${m[3]}`, "iso");
+  const end = toDay(`${m[4]}-${m[5]}-${m[6]}`, "iso");
+  return start && end && start <= end ? { start, end } : null;
+}
+
+export function normalizeAdSummary(file: string, text: string, m: AdSummaryMapping): Normalized<SummaryFact[]> {
+  const log = new IssueLog(file);
+  const table = readTable(text, m.delimiter, m.skip_rows, log);
+  const empty = { facts: [], issues: log.finish(), rows: 0, period: null };
+  if (!table) return empty;
+  const c = m.columns;
+  const at = locate(table.header, c, ["key", "spend"], log);
+  if (!at) return { ...empty, issues: log.finish() };
+
+  const merged = new Map<string, SummaryFact>();
+  const days: string[] = [];
+  let rows = 0;
+  for (const { cells, line } of table.rows) {
+    let key: string;
+    if (m.dimension === "day") {
+      const day = summaryDay(cells[at.key as number]);
+      if (!day) {
+        log.add({ severity: "warn", kind: "bad_date", row: line, column: c.key, message: `"${cleanLabel(cells[at.key as number] ?? "", 30)}" is not a date; row skipped` });
+        continue;
+      }
+      key = day;
+      days.push(day);
+    } else key = textCell(cells[at.key as number], log, line, c.key);
+    if (key === "") continue;
+    const values = (["spend", "impressions", "clicks", "conversions", "conv_value"] as const).map((f) => metric(cells, at[f], log, line, c[f]));
+    if (values.some((v) => v === null)) continue;
+    const [spend, impressions, clicks, conversions, conv_value] = values as number[];
+    const prev = merged.get(key);
+    if (prev) {
+      prev.spend += spend as number;
+      prev.impressions += impressions as number;
+      prev.clicks += clicks as number;
+      prev.conversions += conversions as number;
+      prev.conv_value += conv_value as number;
+    } else merged.set(key, { key, spend: spend as number, impressions: impressions as number, clicks: clicks as number, conversions: conversions as number, conv_value: conv_value as number });
+    rows += 1;
+  }
+  const period = m.dimension === "day" && days.length > 0 ? periodOf(days) : periodFromFileName(file);
+  if (!period) {
+    log.add({ severity: "error", kind: "no_period", message: "cannot tell which dates this summary covers; keep the platform's file name, for example Campaigns(2026.09.01-2026.09.30).csv" });
+    return { facts: [], issues: log.finish(), rows: 0, period: null };
+  }
+  return { facts: [...merged.values()], issues: log.finish(), rows, period };
 }
 
 export function normalizeWebAnalytics(file: string, text: string, m: WebAnalyticsMapping): Normalized<WebFact[]> {

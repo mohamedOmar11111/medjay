@@ -35,3 +35,30 @@ describe("ingestion mappings", () => {
     expect(() => parseMappings(base.replace("currency: SAR", "currency: riyal"))).toThrow(/ISO 4217/);
   });
 });
+
+describe("ad_summary sources (platform UI exports with no date column)", () => {
+  const yaml = (extra = "") => `version: 1
+sources:
+  - id: google-campaigns
+    kind: ad_summary
+    platform: google
+    currency: SAR
+    file: "Campaigns(*).csv"
+    dimension: campaign
+    columns:
+      key: Campaign Name
+      spend: Cost
+      conversions: Conversions${extra}
+attribution:
+  source_aliases: {}
+`;
+  it("accepts a summary source and fills in the defaults", () => {
+    const m = parseMappings(yaml());
+    expect(m.sources[0]).toMatchObject({ kind: "ad_summary", dimension: "campaign", delimiter: ",", columns: { key: "Campaign Name", spend: "Cost" } });
+  });
+  it("rejects an unknown dimension, a missing key column and stray fields", () => {
+    expect(() => parseMappings(yaml().replace("dimension: campaign", "dimension: galaxy"))).toThrow(/dimension/);
+    expect(() => parseMappings(yaml().replace("      key: Campaign Name\n", ""))).toThrow(/key/);
+    expect(() => parseMappings(yaml("\n      colour: red"))).toThrow(/colour|unrecognized/i);
+  });
+});
