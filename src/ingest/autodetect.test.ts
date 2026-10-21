@@ -114,3 +114,43 @@ describe("what it refuses to guess", () => {
     expect(d.mappings!.sources[0]).toMatchObject({ kind: "crm", columns: { created_at: "Created Date" } });
   });
 });
+
+describe("detectMappings on Google Ads summary exports (no date column)", () => {
+  const put = (name: string, header: string, ...rows: string[]) => writeFile(join(drop, name), [header, ...rows].join("\n"), "utf8");
+  beforeEach(async () => {
+    for (const f of ["google-ads-2026-10-10_16.csv", "meta-ads-2026-10-10_16.csv", "ga4-landing-pages-2026-10-10_16.csv", "crm-contacts-2026-10-17.json"]) await rm(join(drop, f), { force: true });
+    await put("Campaigns(2026.09.01-2026.09.30).csv", "Campaign Name,Campaign Group Name,Campaign Status,Cost,Conversions,Cost / conv.", 'georgia,,Enabled,"SAR8,450.00",78.00,SAR108.33');
+    await put("Searches(Search_2026.09.01-2026.09.30).csv", "Search,Cost,Clicks,Impressions,Conversions", "thailand,SAR164.71,17,436,0.00");
+    await put("Search_keywords(2026.09.01-2026.09.30).csv", "Search Keyword,Match type,Criterion Status,Campaign Status,Ad Group Status,Cost,Clicks,CTR", 'شهر عسل,Broad match,Enabled,Enabled,Enabled,"SAR3,059.91",288,9.77%');
+    await put("Devices(2026.09.01-2026.09.30).csv", "Device,Cost,Clicks,Conversions", "Mobile phones,SAR29822.18,3226,345.00");
+    await put("Time_series(2026.09.01-2026.09.30).csv", "Date,Conversions,Cost / conv.,Avg. CPC,Cost", '"Tue, Sep 1, 2026",14.00,SAR159.05,SAR8.10,"SAR2,226.72"');
+  });
+
+  it("maps each report by what its first column is, as a google ad_summary with the period left to the file name", async () => {
+    const d = await detectMappings(drop, "SAR");
+    expect(d.unmatched).toEqual([]);
+    const by = Object.fromEntries(d.mappings!.sources.map((s) => [s.kind === "ad_summary" ? s.dimension : s.id, s]));
+    expect(Object.keys(by).sort()).toEqual(["campaign", "day", "device", "keyword", "search_term"]);
+    expect(by.campaign).toMatchObject({ kind: "ad_summary", platform: "google", currency: "SAR", file: "Campaigns(*).csv", columns: { key: "Campaign Name", spend: "Cost", conversions: "Conversions" } });
+    expect(by.search_term).toMatchObject({ file: "Searches(Search_*).csv", columns: { key: "Search", spend: "Cost", clicks: "Clicks", impressions: "Impressions" } });
+    expect(by.day).toMatchObject({ columns: { key: "Date", spend: "Cost" } });
+  });
+
+  it("ingests what it detected, end to end", async () => {
+    const d = await detectMappings(drop, "SAR");
+    const report = await ingestDropzone({ ...h.deps, mappings: d.mappings! });
+    expect(report.files.filter((f) => f.status === "ingested")).toHaveLength(5);
+    expect(h.store.database().prepare("SELECT COUNT(*) AS n FROM fact_period").get()).toEqual({ n: 5 });
+  });
+
+  it("leaves comparison reports, hour-of-day reports and Search Console files alone, and says why", async () => {
+    await put("Biggest_changes(2026.09.01-2026.09.30_compared_to_2026.08.02-2026.08.31).csv", "Campaign Name,Cost,Cost (Comparison),Clicks,Clicks (Comparison)", "A,SAR10.00,SAR8.00,5,4");
+    await put("Day_&_hour(Day_2026.09.01-2026.09.30).csv", "Day,Cost", "Monday,SAR50.00");
+    await put("Queries.csv", "Top queries,Clicks,Impressions,CTR,Position", "x,1,2,3%,4");
+    const d = await detectMappings(drop, "SAR");
+    const reasons = Object.fromEntries(d.unmatched.map((u) => [u.file.slice(0, 12), u.reason]));
+    expect(d.unmatched).toHaveLength(3);
+    expect(reasons["Biggest_chan"]).toMatch(/comparison/i);
+    expect(d.mappings!.sources).toHaveLength(5);
+  });
+});

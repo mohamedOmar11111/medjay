@@ -148,6 +148,46 @@ interface Candidate {
   platform?: string;
 }
 
+// Platform UI reports that summarize a whole period by one thing and have no date column. The first
+// column says what the rows are; the period is in the file name, which is how Google Ads names them.
+const SUMMARY_KEYS: [string, string][] = [
+  ["campaign", "campaign name"],
+  ["search_term", "search"],
+  ["keyword", "search keyword"],
+  ["device", "device"],
+  ["word", "word"],
+  ["day", "date"],
+];
+const GOOGLE_PERIOD_IN_NAME = /\d{4}\.\d{2}\.\d{2}-\d{4}\.\d{2}\.\d{2}/;
+const SUMMARY_METRICS = ["spend", "impressions", "clicks", "conversions", "conv_value"] as const;
+
+function classifySummary(file: string, table: string[][], shown: string[], delimiter: string, baseCurrency: string): Candidate | Unmatched | null {
+  const header = table[0];
+  if (!header) return null;
+  const names = header.map(norm);
+  const metrics = matchColumns(header, AD_FIELDS);
+  const keyed = SUMMARY_KEYS.find(([, column]) => names.includes(column));
+  if (!keyed || metrics.spend === undefined) return null;
+  const [dimension, keyName] = keyed;
+  if (header.some((h) => /\(comparison\)/i.test(h))) {
+    return { file, headers: shown, reason: "a comparison report (this period against another); not used, so the same spend is not counted twice" };
+  }
+  const named = GOOGLE_PERIOD_IN_NAME.test(file);
+  if (!named && dimension !== "day") {
+    return { file, headers: shown, reason: "a summary report, but the dates it covers are not in its file name; keep the platform's name, for example Campaigns(2026.09.01-2026.09.30).csv" };
+  }
+  const platform = platformOf(file, header) ?? (named ? "google" : null);
+  if (platform === null) return { file, headers: shown, reason: "looks like a summary report, but not which platform; put meta, google, tiktok, snapchat or linkedin in the file name" };
+  const spendAt = header.findIndex((h) => h.trim() === metrics.spend);
+  const sample = table.slice(1, 6).map((r) => (r[spendAt] ?? "").trim());
+  const currency = sample.map((v) => /^([A-Z]{3})\s*[\d.,]/.exec(v)?.[1]).find(Boolean) ?? baseCurrency;
+  const columns: Record<string, string> = { key: header[names.indexOf(keyName)]!.trim() };
+  for (const field of SUMMARY_METRICS) if (metrics[field] !== undefined) columns[field] = metrics[field]!;
+  const glob = file.replace(GOOGLE_PERIOD_IN_NAME, "*");
+  // no top-level platform: a summary has no UTM attribution, so it adds no source alias
+  return { source: { id: `${platform}_${dimension}`, kind: "ad_summary", platform, currency, file: glob, delimiter, skip_rows: 0, dimension, columns } };
+}
+
 function classify(file: string, text: string, baseCurrency: string, notes: string[]): Candidate | Unmatched {
   const lines = text.replace(/^﻿/, "").split(/\r?\n/).slice(0, HEADER_SCAN_ROWS + 1);
   const delimiter = sniffDelimiter(lines.find((l) => l.trim() !== "") ?? "");
@@ -170,7 +210,9 @@ function classify(file: string, text: string, baseCurrency: string, notes: strin
   }
   const shown = (table[0] ?? []).map((h) => h.trim()).filter(Boolean).slice(0, 25);
   if (best === null) {
-    return { file, headers: shown, reason: "no known set of columns: an ad export needs date, campaign and spend; web analytics needs date, landing page, source, campaign and sessions; a CRM export needs contact id, created at, stage, utm source and utm campaign" };
+    const summary = classifySummary(file, table, shown, delimiter, baseCurrency);
+    if (summary) return summary;
+    return { file, headers: shown, reason: "no known set of columns: an ad export needs date, campaign and spend; web analytics needs date, landing page, source, campaign and sessions; a CRM export needs contact id, created at, stage, utm source and utm campaign; a platform summary report needs a name column and cost, with the dates in the file name" };
   }
   const header = table[best.at]!;
   const body = table.slice(best.at + 1);
