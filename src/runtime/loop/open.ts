@@ -13,6 +13,7 @@ import type { Pack } from "../../style/slop.js";
 import { loadWorkspace } from "../../workspace/load.js";
 import { ToolRegistry } from "../registry.js";
 import { RunScope } from "../scope.js";
+import { growthTools, type GrowthPort } from "../tools/growth.js";
 import { createBuiltinTools } from "../tools/index.js";
 import { createAiSdkDriver } from "./driver.js";
 import type { RunDeps } from "./run.js";
@@ -33,6 +34,8 @@ export interface OpenRunOptions {
   credentials?: CredentialResolver;
   catalog?: ModelCatalog;
   now?: () => Date;
+  /** The analyses the growth tools call; without it the agent has only the built-in tools. */
+  growth?: GrowthPort;
 }
 
 export interface OpenedRun {
@@ -55,6 +58,7 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
   for (const tool of createBuiltinTools({ policy, style: { packs, extraBanned, allow: config.style.slop.allow, claims: context.claims, failOn: config.style.slop.fail_on } })) {
     registry.register(tool);
   }
+  if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
   const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id });
   const store = Store.open(join(dir, STORE_PATH));
 
