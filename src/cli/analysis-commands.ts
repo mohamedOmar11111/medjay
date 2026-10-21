@@ -154,7 +154,7 @@ export function registerAnalysisCommands(program: Command): void {
           const observed = snapshot.status === "ok" ? { cost_per_deal: snapshot.totals.cost_per_deal, blended_mer: snapshot.totals.blended_mer } : undefined;
           if (opts.plan !== undefined) return await simulateForPlan(w, opts, economics, observed);
 
-          const spend = opts.spend ?? (snapshot.status === "ok" ? snapshot.totals.spend : undefined);
+          const spend = opts.spend ?? (snapshot.status === "ok" ? snapshot.totals.spend : w.summary()?.totals.spend);
           if (spend === undefined) throw new Error("no spend to simulate: pass --spend or ingest ad data first");
           const result = simulate(economics, {
             spend,

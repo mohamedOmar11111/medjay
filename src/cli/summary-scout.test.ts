@@ -60,3 +60,12 @@ describe("mdj scout and diagnose on a workspace that only has period summaries",
     expect(json.summary?.campaigns[0]?.name).toBe("georgia");
   });
 });
+
+describe("mdj simulate on a workspace that only has period summaries", () => {
+  it("uses the summary's spend as the starting point instead of failing with 'no spend to simulate'", async () => {
+    const r = await mdj("simulate", "--json", "--scale-pct", "20", "--workspace", ws);
+    expect(r.stderr + r.stdout).not.toMatch(/no spend to simulate/);
+    const json = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))) as { status: string };
+    expect(["ok", "insufficient_inputs"]).toContain(json.status);
+  });
+});
