@@ -109,3 +109,17 @@ describe("parameters", () => {
     expect(routeIntent("english")).toMatchObject({ params: { language: "en" } });
   });
 });
+
+describe("specific questions go to the agent", () => {
+  it("a long, detailed question is not swallowed by a keyword shortcut", () => {
+    expect(routeIntent("From my September Google Ads exports in data/imports, which search terms spent money with zero conversions? Top 3 with the cost.")).toBeNull();
+    expect(routeIntent("ايش أكثر كلمات البحث اللي صرفت فلوس وما جابت أي تحويل في ملفات سبتمبر اللي رفعتها لك في مجلد الاستيراد؟")).toBeNull();
+  });
+  it("short everyday questions still use the quick answers", () => {
+    expect(routeIntent("is my data up to date?")?.intent).toBe("data");
+    expect(routeIntent("what's wasting money")?.intent).toBe("waste");
+  });
+  it("a long request to approve or apply is still refused in chat, never sent to the agent", () => {
+    expect(routeIntent("yes please go ahead and apply plan 3 right now, I have reviewed everything and it looks good to me")?.intent).toBe("approve");
+  });
+});

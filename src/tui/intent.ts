@@ -71,10 +71,16 @@ function params(text: string, intent: IntentName): Routed["params"] {
   return out;
 }
 
+const MAX_QUICK_WORDS = 12;
+
 export function routeIntent(raw: string): Routed | null {
   const text = clean(raw);
   if (text === "") return null;
+  // A long, detailed question is about something specific that a canned answer cannot cover; only a
+  // request to approve/apply stays routed, so it is always refused in chat.
+  const detailed = text.split(" ").length > MAX_QUICK_WORDS;
   for (const rule of RULES) {
+    if (detailed && rule.intent !== "approve") continue;
     if (rule.patterns.some((p) => p.test(text))) return { intent: rule.intent, params: params(text, rule.intent) };
   }
   return null;
