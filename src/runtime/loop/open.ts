@@ -1,5 +1,6 @@
 // Opens everything a run needs from a workspace folder: config, policy, tools, scope, store, ledger
 // and (unless one is injected) the real model driver. Shared by the CLI and the live tests.
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { Ledger } from "../../audit/ledger.js";
 import type { SlotName } from "../../constants.js";
@@ -8,12 +9,14 @@ import { CredentialResolver } from "../../models/credentials.js";
 import { resolveSlot } from "../../models/slots.js";
 import { loadPolicy } from "../../shield/policy.js";
 import { Store } from "../../store/db.js";
+import { defaultRoots, discoverSkills } from "../../skills/discover.js";
 import { loadStyleContext } from "../../style/context.js";
 import type { Pack } from "../../style/slop.js";
 import { loadWorkspace } from "../../workspace/load.js";
 import { ToolRegistry } from "../registry.js";
 import { RunScope } from "../scope.js";
 import { growthTools, type GrowthPort } from "../tools/growth.js";
+import { skillTools } from "../tools/skills.js";
 import { createBuiltinTools } from "../tools/index.js";
 import { createAiSdkDriver } from "./driver.js";
 import type { RunDeps } from "./run.js";
@@ -36,6 +39,8 @@ export interface OpenRunOptions {
   now?: () => Date;
   /** The analyses the growth tools call; without it the agent has only the built-in tools. */
   growth?: GrowthPort;
+  /** Where ~/.medjay and ~/.claude are looked for (tests); defaults to the user's home. */
+  home?: string;
 }
 
 export interface OpenedRun {
@@ -59,6 +64,8 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
     registry.register(tool);
   }
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
+  const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home: options.home ?? homedir() }));
+  if (discovery.skills.length > 0) for (const tool of skillTools(discovery)) registry.register(tool);
   const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id });
   const store = Store.open(join(dir, STORE_PATH));
 

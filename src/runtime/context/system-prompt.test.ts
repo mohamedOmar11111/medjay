@@ -83,3 +83,14 @@ describe("buildSystemPrompt with the growth tools", () => {
     expect(buildSystemPrompt({ ...base, surface: "internal" })).not.toMatch(/growth_scout/);
   });
 });
+
+describe("buildSystemPrompt with skills", () => {
+  it("tells the agent to look for a saved skill first, and that a skill adds method but no permissions", () => {
+    const text = buildSystemPrompt({ ...base, surface: "internal", tools: ["skill_search", "skill_load"] });
+    expect(text).toMatch(/skill_search/);
+    expect(text).toMatch(/never give you more permissions|cannot give you/i);
+  });
+  it("says nothing about skills when there are none", () => {
+    expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["read_file"] })).not.toMatch(/skill_search/);
+  });
+});
