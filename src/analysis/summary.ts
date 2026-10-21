@@ -41,6 +41,7 @@ const cpa = (spend: number, conversions: number) => (conversions > 0 ? r2(spend 
 const MS_PER_DAY = 86_400_000;
 const inclusiveDays = (start: string, end: string) => Math.round((Date.parse(end) - Date.parse(start)) / MS_PER_DAY) + 1;
 const LIST_LIMIT = 10;
+const CUT_OFF_ROW_COUNTS = new Set([50, 100, 500, 1000]);
 /** Two reports of the same period should agree within this share. */
 const AGREEMENT_TOLERANCE = 0.02;
 
@@ -82,6 +83,11 @@ export function periodSummary(store: Store): PeriodSummary | null {
     const gap = Math.abs(other - totalSpend) / totalSpend;
     if (gap > AGREEMENT_TOLERANCE) notes.push(`The ${label} report adds up to ${r2(other)} but the campaigns report adds up to ${r2(totalSpend)} (${Math.round(gap * 100)}% apart); check both were exported for the same dates and filters.`);
   };
+  // platforms cut a UI export at a round number of rows, so such a report may be missing the rest
+  for (const [label, dimension] of [["search term", "search_term"], ["keyword", "keyword"]] as const) {
+    const count = rows(dimension).length;
+    if (CUT_OFF_ROW_COUNTS.has(count)) notes.push(`The ${label} report has exactly ${count} rows, which usually means the platform cut it off; there may be more ${label}s than shown here.`);
+  }
   compare("devices", deviceRows);
   compare("daily", dailyRows);
 

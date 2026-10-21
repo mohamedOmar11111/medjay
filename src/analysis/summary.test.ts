@@ -83,3 +83,17 @@ describe("periodSummary", () => {
     expect(s.notes.some((m) => /devices/i.test(m) && /10%/.test(m))).toBe(true);
   });
 });
+
+describe("periodSummary cut-off warning", () => {
+  it("warns when a report has exactly the row count platforms cut exports at", () => {
+    put("campaign", "A", 100, 1);
+    for (let i = 0; i < 100; i += 1) put("search_term", `term ${i}`, 1, 0, 1);
+    const notes = periodSummary(store)!.notes;
+    expect(notes.some((m) => /search term/i.test(m) && /100 rows/.test(m) && /cut it off/i.test(m))).toBe(true);
+  });
+  it("stays quiet for an ordinary row count", () => {
+    put("campaign", "A", 100, 1);
+    for (let i = 0; i < 37; i += 1) put("search_term", `term ${i}`, 1, 0, 1);
+    expect(periodSummary(store)!.notes).toEqual([]);
+  });
+});
