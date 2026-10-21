@@ -9,6 +9,8 @@ import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noD
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
 import { classifyModelFailure } from "./model-errors.js";
+import { lineSplitter } from "./lines.js";
+import { parseEventLine, type RunEvent } from "../run-events.js";
 import type { Runner } from "./runner.js";
 
 /** Where exports go by default. A workspace can point elsewhere in workspace.yaml; this is only for wording. */
@@ -23,6 +25,8 @@ export interface AskContext {
   dash: Dashboard;
   lang: Language;
   cancelled: () => boolean;
+  /** Sees the agent's progress events as they arrive (the live cards). */
+  onEvent?: (event: RunEvent) => void;
 }
 
 export interface Reply {
@@ -108,16 +112,47 @@ const TASK_PREFIX: Record<Language, string> = {
   ar: "أجب بالعربية وبكلمات بسيطة لمسوّق مشغول: ابدأ بأثر المال ولا تستخدم مصطلحات تقنية. السؤال: ",
 };
 
-/** Hand an open question to the agent, and strip the run bookkeeping from what comes back. */
+/** Hand an open question to the agent. Progress arrives as events while it works; the answer is the final event. */
 export async function askAgent(text: string, ctx: AskContext): Promise<Reply> {
-  const c = await collect(ctx, ["run", "--workspace", ctx.workspaceDir, "--", `${TASK_PREFIX[ctx.lang]}${text}`]);
-  const failure = c.code !== 0 ? classifyModelFailure(`${c.err}\n${c.out}`) : null;
-  if (failure) return reply(modelErrorAnswer(failure, ctx.lang), ctx.lang);
-  const cut = c.out.search(/\nrun run_[0-9a-f]+:/);
-  const answer = (cut === -1 ? c.out : c.out.slice(0, cut)).trim();
-  const proposals = /(\d+) proposal\(s\) ready/.exec(c.out);
-  if (c.code !== 0 && answer === "") return reply(errorAnswer(ctx.lang, firstLine(c)), ctx.lang);
-  const lines = [answer === "" ? firstLine(c) : answer];
-  if (proposals) lines.push("", ctx.lang === "ar" ? `جهّزت ${proposals[1]} خطة لتراجعها. اسألني "ايش ينتظر موافقتي؟"` : `I prepared ${proposals[1]} plan(s) for you to review. Ask me "What's waiting for my approval?"`);
-  return { text: lines.join("\n"), suggestions: helpAnswer(ctx.lang, false).next.slice(0, 4) };
+  const state: { finished: Extract<RunEvent, { type: "run.finished" }> | null; runId: string | null; stray: string; err: string } = { finished: null, runId: null, stray: "", err: "" };
+  const split = lineSplitter((line) => {
+    const event = parseEventLine(line);
+    if (event === null) {
+      state.stray += `${line}\n`;
+      return;
+    }
+    if (event.type === "run.finished") state.finished = event;
+    if (event.type === "run.started") state.runId = event.run_id;
+    try {
+      ctx.onEvent?.(event);
+    } catch {
+      // a bug in the live view must not lose the answer
+    }
+  });
+  const { code } = await ctx.runner(["run", "--events", "--workspace", ctx.workspaceDir, "--", `${TASK_PREFIX[ctx.lang]}${text}`], (chunk, stream) => (stream === "out" ? split.push(chunk) : void (state.err += chunk))).done;
+  split.end();
+  const lang = ctx.lang;
+  const fin = state.finished;
+  if (fin === null) {
+    // the command ended before it could report: explain from whatever it printed
+    const failure = code !== 0 ? classifyModelFailure(`${state.err}\n${state.stray}`) : null;
+    if (failure) return reply(modelErrorAnswer(failure, lang), lang);
+    if (code !== 0) return reply(errorAnswer(lang, firstLine({ code, out: state.stray, err: state.err })), lang);
+    return { text: state.stray.trim(), suggestions: helpAnswer(lang, false).next.slice(0, 4) };
+  }
+  if (fin.error) {
+    const failure = classifyModelFailure(`${fin.error.kind}: ${fin.error.message}`);
+    return failure ? reply(modelErrorAnswer(failure, lang), lang) : reply(errorAnswer(lang, fin.error.message), lang);
+  }
+  const suggestions = helpAnswer(lang, false).next.slice(0, 4);
+  if (fin.status !== "completed") {
+    const resume = state.runId ? ` mdj resume ${state.runId}` : "";
+    const head = lang === "ar" ? "اضطريت أوقف قبل ما أخلص." : "I had to stop before I finished.";
+    const why = fin.status.startsWith("max_") ? (lang === "ar" ? "وصلت لحد الأمان المحدد لكل مرة." : "I reached the safety limit for one request.") : fin.status === "needs_human" ? (lang === "ar" ? "أحتاج موافقتك على خطوة." : "I need your OK on one step.") : lang === "ar" ? "تم الإيقاف." : "I was stopped.";
+    const tail = resume ? (lang === "ar" ? `تكملها من الطرفية:${resume}` : `You can continue it from a terminal:${resume}`) : "";
+    return { text: [`# ${head}`, why, ...(fin.final_text.trim() ? ["", fin.final_text.trim()] : []), ...(tail ? ["", tail] : [])].join("\n"), suggestions };
+  }
+  const lines = [fin.final_text.trim()];
+  if (fin.proposals > 0) lines.push("", lang === "ar" ? `جهّزت ${fin.proposals} خطة لتراجعها. اسألني \"ايش ينتظر موافقتي؟\"` : `I prepared ${fin.proposals} plan(s) for you to review. Ask me \"What's waiting for my approval?\"`);
+  return { text: lines.join("\n"), suggestions };
 }

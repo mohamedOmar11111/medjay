@@ -6,6 +6,7 @@ import { FIXTURE_NOW, setupIngest, type IngestHarness } from "../../test/helpers
 import { answerIntent, askAgent, type AskContext } from "./ask.js";
 import { emptyDashboard } from "./dashboard.js";
 import type { Runner } from "./runner.js";
+import { encodeEvent, type RunEvent } from "../run-events.js";
 
 let h: IngestHarness;
 let snapshot: ReturnType<typeof scout>;
@@ -99,19 +100,39 @@ describe("an empty workspace", () => {
 });
 
 describe("askAgent", () => {
-  it("sends the question after `--` with a marketer-language instruction and strips run bookkeeping", async () => {
-    const { ctx, calls } = ctxWith(() => ({ out: "\nCut the broad Reels ad set first.\n\nrun run_ab12cd34ef: completed after 3 step(s), 1200 tokens, $0.0100\n1 proposal(s) ready: `mdj runs proposals run_ab12cd34ef`\n" }));
+  const finished = (over: Partial<Extract<RunEvent, { type: "run.finished" }>> = {}): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 10, output: 5 }, cost_usd: 0.001, cost_known: true, final_text: "", proposals: 0, ...over });
+  const stream = (...events: RunEvent[]) => events.map(encodeEvent).join("");
+
+  it("sends the question after `--` with a marketer-language instruction, asks for events, and answers with the final text", async () => {
+    const { ctx, calls } = ctxWith(() => ({ out: stream(finished({ final_text: "Cut the broad Reels ad set first.", proposals: 1 })) }));
     const r = await askAgent("what should I cut?", ctx);
-    expect(calls[0]!.slice(0, 4)).toEqual(["run", "--workspace", "/ws", "--"]);
-    expect(calls[0]![4]).toContain("Question: what should I cut?");
-    expect(calls[0]![4]).toContain("no jargon");
+    expect(calls[0]!.slice(0, 5)).toEqual(["run", "--events", "--workspace", "/ws", "--"]);
+    expect(calls[0]![5]).toContain("Question: what should I cut?");
+    expect(calls[0]![5]).toContain("no jargon");
     expect(r.text).toContain("Cut the broad Reels ad set first.");
-    expect(r.text).not.toMatch(/run_ab12|tokens|\$0\./);
+    expect(r.text).not.toMatch(/run_|tokens|\$0\./);
     expect(r.text).toContain("I prepared 1 plan(s) for you to review");
   });
 
+  it("passes every event to the live view, even when a chunk ends mid-line", async () => {
+    const seen: string[] = [];
+    const lines = stream({ type: "run.started", run_id: "run_1", slot: "reasoning" }, { type: "step.started", step: 1, max_steps: 12 }, finished({ final_text: "ok" }));
+    const half = Math.floor(lines.length / 2);
+    const calls: string[][] = [];
+    const runner: Runner = (argv, onChunk) => {
+      calls.push(argv);
+      onChunk(lines.slice(0, half), "out");
+      onChunk(lines.slice(half), "out");
+      return { done: Promise.resolve({ code: 0 }), cancel: () => undefined };
+    };
+    const { ctx } = ctxWith(() => ({}));
+    const r = await askAgent("hi", { ...ctx, runner, onEvent: (e) => seen.push(e.type) });
+    expect(seen).toEqual(["run.started", "step.started", "run.finished"]);
+    expect(r.text).toContain("ok");
+  });
+
   it("a missing key points to /connect with the provider", async () => {
-    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: "auth: all model targets failed: anthropic/x (auth: no API key for anthropic: store one with \"mdj auth set anthropic\")\n", code: 1 }));
+    const { ctx } = ctxWith(() => ({ out: stream(finished({ status: "failed", steps: 0, error: { kind: "auth", message: 'all model targets failed: anthropic/x (auth: no API key for anthropic: store one with "mdj auth set anthropic")' } })), code: 1 }));
     const r = await askAgent("write three headlines", ctx);
     expect(r.text).toMatch(/^# I don.t have a key for anthropic yet/);
     expect(r.text).toContain("/connect anthropic");
@@ -119,18 +140,28 @@ describe("askAgent", () => {
   });
 
   it("a rejected key is not reported as not connected", async () => {
-    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s)\n", err: "auth: all model targets failed: openai/gpt-5.4-mini (auth: Invalid API key)\n", code: 1 }));
+    const { ctx } = ctxWith(() => ({ out: stream(finished({ status: "failed", steps: 0, error: { kind: "auth", message: "all model targets failed: openai/gpt-5.4-mini (auth: Invalid API key)" } })), code: 1 }));
     expect((await askAgent("hi", ctx)).text).toMatch(/^# openai rejected the saved key/);
   });
 
   it("a spend cap shows the reset date", async () => {
-    const { ctx } = ctxWith(() => ({ out: "run run_x: failed after 0 step(s), 0 tokens\n", err: "failed: You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.\n", code: 1 }));
+    const { ctx } = ctxWith(() => ({ out: stream(finished({ status: "failed", steps: 0, error: { kind: "failed", message: "You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC." } })), code: 1 }));
     expect((await askAgent("hi", ctx)).text).toContain("2026-11-01");
   });
 
+  it("when the command dies before any event, it still explains from the error text", async () => {
+    const { ctx } = ctxWith(() => ({ err: "error: no workspace found here", code: 1 }));
+    expect((await askAgent("hi", ctx)).text).toMatch(/^# I couldn't finish that/);
+  });
+
+  it("says plainly when the run stopped at a limit or is waiting, instead of showing nothing", async () => {
+    const { ctx } = ctxWith(() => ({ out: stream(finished({ status: "max_steps_reached", steps: 12 })), code: 3 }));
+    expect((await askAgent("hi", ctx)).text).toMatch(/stopped/i);
+  });
+
   it("uses an Arabic instruction when the question is Arabic", async () => {
-    const { ctx, calls } = ctxWith(() => ({ out: "تمام\n" }), "ar");
+    const { ctx, calls } = ctxWith(() => ({ out: stream(finished({ final_text: "تمام" })) }), "ar");
     await askAgent("اكتب لي عناوين", ctx);
-    expect(calls[0]![4]).toMatch(/^أجب بالعربية/);
+    expect(calls[0]![5]).toMatch(/^أجب بالعربية/);
   });
 });
