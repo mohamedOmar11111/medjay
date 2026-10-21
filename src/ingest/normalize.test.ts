@@ -205,8 +205,7 @@ describe("normalizeAdSummary", () => {
   });
 
   it("finds the period when the file name has a prefix before the dates", () => {
-    const text = ["Campaign Name,Cost,Conversions", "A,SAR10.00,1"].join("
-");
+    const text = ["Campaign Name,Cost,Conversions", "A,SAR10.00,1"].join("\n");
     expect(normalizeAdSummary("Searches(Search_2026.09.01-2026.09.30).csv", text, summary()).period).toEqual({ start: "2026-09-01", end: "2026-09-30" });
     expect(normalizeAdSummary("Biggest_changes(2026.09.01-2026.09.30_compared_to_2026.08.02-2026.08.31).csv", text, summary()).period).toEqual({ start: "2026-09-01", end: "2026-09-30" });
   });
