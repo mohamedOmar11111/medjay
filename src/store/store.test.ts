@@ -29,7 +29,7 @@ describe("Store", () => {
   it("creates the database (and its folder) at the fixed path and reports its schema version", async () => {
     const store = Store.open(file);
     expect((await stat(file)).isFile()).toBe(true);
-    expect(store.schemaVersion()).toBe(7);
+    expect(store.schemaVersion()).toBe(8);
     store.close();
   });
 
@@ -44,7 +44,7 @@ describe("Store", () => {
     first.recordUsage(usage());
     first.close();
     const second = Store.open(file);
-    expect(second.schemaVersion()).toBe(7);
+    expect(second.schemaVersion()).toBe(8);
     expect(second.usageSummary()).toHaveLength(1);
     second.close();
   });
@@ -99,7 +99,7 @@ describe("Store", () => {
     old.exec("PRAGMA user_version = 2");
     old.close();
     const store = Store.open(file);
-    expect(store.schemaVersion()).toBe(7);
+    expect(store.schemaVersion()).toBe(8);
     expect(store.usageSummary(undefined, { bySurface: true })[0]).toMatchObject({ surface: "other", calls: 1 });
     store.close();
   });
@@ -130,5 +130,19 @@ describe("Store", () => {
     store.recordUsage(usage());
     expect(store.usageSummary()).toHaveLength(1);
     store.close();
+  });
+});
+
+describe("period facts table", () => {
+  it("exists, accepts a summary row, and is empty for a new store", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "medjay-period-"));
+    const store = await Store.open(join(dir, "m.db"));
+    const db = store.database();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM fact_period").get()).toEqual({ n: 0 });
+    db.prepare("INSERT INTO sources (source_id, mapping_id, kind, platform, file, sha256, rows, issues_json, period_start, period_end, ingested_at) VALUES ('s','m','ad_summary','google','f','h',1,'[]','2026-09-01','2026-09-30','t')").run();
+    db.prepare("INSERT INTO fact_period (source_id, platform, period_start, period_end, dimension, key, spend, impressions, clicks, conversions, conv_value, currency) VALUES ('s','google','2026-09-01','2026-09-30','campaign','georgia',8450,0,0,78,0,'SAR')").run();
+    expect(db.prepare("SELECT key, spend FROM fact_period").get()).toEqual({ key: "georgia", spend: 8450 });
+    store.close();
+    await rm(dir, { recursive: true, force: true });
   });
 });

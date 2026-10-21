@@ -123,14 +123,14 @@ describe("RunRepo: status, lease, nudge", () => {
 
 describe("store schema 4", () => {
   it("creates the run tables and upgrades a version 3 database in place", async () => {
-    expect(store.schemaVersion()).toBe(7);
+    expect(store.schemaVersion()).toBe(8);
     const { DatabaseSync } = await import("node:sqlite");
     store.close();
     const raw = new DatabaseSync(join(dir, ".medjay", "experiments.db"));
-    raw.exec("DROP TABLE run_steps; DROP TABLE runs; DROP TABLE bridge_state; DROP TABLE bridge_jobs; DROP TABLE bridge_messages; DROP TABLE simulations; DROP TABLE deals; DROP TABLE lead_stage_events; DROP TABLE leads; DROP TABLE web_sessions; DROP TABLE fact_daily; DROP TABLE sources; PRAGMA user_version = 3");
+    raw.exec("DROP TABLE fact_period; DROP TABLE run_steps; DROP TABLE runs; DROP TABLE bridge_state; DROP TABLE bridge_jobs; DROP TABLE bridge_messages; DROP TABLE simulations; DROP TABLE deals; DROP TABLE lead_stage_events; DROP TABLE leads; DROP TABLE web_sessions; DROP TABLE fact_daily; DROP TABLE sources; PRAGMA user_version = 3");
     raw.close();
     store = Store.open(join(dir, ".medjay", "experiments.db"));
-    expect(store.schemaVersion()).toBe(7);
+    expect(store.schemaVersion()).toBe(8);
     repo = new RunRepo(store);
     expect(create().status).toBe("running");
   });

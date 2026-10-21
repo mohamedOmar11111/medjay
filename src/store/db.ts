@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SLOT_NAMES, USAGE_SURFACES, type SlotName, type UsageSurface } from "../constants.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const MIGRATIONS: readonly string[] = [
   // 1: model usage telemetry
@@ -220,6 +220,22 @@ const MIGRATIONS: readonly string[] = [
      value TEXT NOT NULL,
      updated_at TEXT NOT NULL
    );`,
+  // 8: period summaries from platform UI exports that have no date column (one row per campaign, search term, device...)
+  `CREATE TABLE fact_period (
+     source_id TEXT NOT NULL REFERENCES sources (source_id),
+     platform TEXT NOT NULL,
+     period_start TEXT NOT NULL,
+     period_end TEXT NOT NULL,
+     dimension TEXT NOT NULL,
+     key TEXT NOT NULL,
+     spend REAL NOT NULL,
+     impressions REAL NOT NULL,
+     clicks REAL NOT NULL,
+     conversions REAL NOT NULL,
+     conv_value REAL NOT NULL,
+     currency TEXT NOT NULL
+   );
+   CREATE INDEX fact_period_dim ON fact_period (dimension, period_start);`,
 ];
 
 export interface UsageRecord {
