@@ -10,10 +10,19 @@ const LABELS: Record<string, string> = {
   list_files: "List files",
   lint_copy: "Copy check",
   propose_plan_actions: "Proposed changes",
+  growth_scout: "Truth check",
+  growth_diagnose: "Diagnosis",
+  growth_context: "Your context",
+  growth_simulate: "Simulation",
 };
 
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const shortDay = (iso: string) => {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d ?? 0} ${MONTHS[(m ?? 1) - 1] ?? ""}`;
+};
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function cardFor(tool: string, input: unknown, output: unknown, ok: boolean, errorKind?: string): Card {
@@ -39,6 +48,37 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       const n = Array.isArray(out.proposals) ? out.proposals.length : 0;
       const status = rec(out.policy).status;
       return { label, summary: `${plural(n, "proposal")}${typeof status === "string" ? ` · policy check: ${status}` : ""}` };
+    }
+    case "growth_scout": {
+      const snapshot = rec(out.snapshot);
+      const summary = rec(out.summary);
+      const range = (p: unknown) => {
+        const period = rec(p);
+        return typeof period.start === "string" && typeof period.end === "string" ? ` · ${shortDay(period.start)} – ${shortDay(period.end)}` : "";
+      };
+      if (snapshot.status === "ok") {
+        const totals = rec(snapshot.totals);
+        return { label, summary: `${String(snapshot.currency ?? "")} ${Math.round(num(totals.spend)).toLocaleString("en-US")} · ${plural(num(totals.leads), "lead")}${range(snapshot.period)}`.trim() };
+      }
+      if (Object.keys(summary).length > 0) {
+        const campaigns = Array.isArray(summary.campaigns) ? summary.campaigns.length : 0;
+        return { label, summary: `${String(summary.currency ?? "")} ${Math.round(num(rec(summary.totals).spend)).toLocaleString("en-US")} · ${plural(campaigns, "campaign")}${range(summary.period)}`.trim() };
+      }
+      return { label, summary: "no ad data found" };
+    }
+    case "growth_diagnose": {
+      const findings = Array.isArray(out.findings) ? out.findings.length : 0;
+      const zero = rec(rec(out.summary).zero_conversion_total);
+      if (findings === 0 && num(zero.terms) > 0) return { label, summary: `${num(zero.terms)} search terms never converted` };
+      return { label, summary: plural(findings, "finding") };
+    }
+    case "growth_context":
+      return { label, summary: `economics, claims, offers · ${plural(Array.isArray(out.tactics) ? out.tactics.length : 0, "tactic")}` };
+    case "growth_simulate": {
+      const result = rec(out.result);
+      if (result.status === "ok") return { label, summary: `${Math.round(num(rec(result.monte_carlo).p_positive) * 100)}% chance it pays off` };
+      if (result.status === "insufficient_inputs") return { label, summary: `missing ${plural(Array.isArray(result.problems) ? result.problems.length : 0, "number")}` };
+      return { label, summary: String(result.status ?? "done") };
     }
     default:
       return { label, summary: "done" };

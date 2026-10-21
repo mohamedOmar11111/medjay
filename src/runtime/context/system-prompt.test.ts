@@ -69,3 +69,17 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt({ ...base, surface: "internal" })).toBe(buildSystemPrompt({ ...base, surface: "internal" }));
   });
 });
+
+describe("buildSystemPrompt with the growth tools", () => {
+  it("tells the agent to scout before it says anything about performance, and to simulate before advising more spend", () => {
+    const text = buildSystemPrompt({ ...base, surface: "internal", tools: ["growth_scout", "growth_diagnose", "growth_simulate", "read_file"] });
+    expect(text).toMatch(/call growth_scout/);
+    expect(text).toMatch(/growth_simulate before/);
+    expect(text).toMatch(/platform's own|CRM/);
+  });
+  it("says nothing about them when they are not available", () => {
+    const text = buildSystemPrompt({ ...base, surface: "internal", tools: ["read_file"] });
+    expect(text).not.toMatch(/growth_scout/);
+    expect(buildSystemPrompt({ ...base, surface: "internal" })).not.toMatch(/growth_scout/);
+  });
+});

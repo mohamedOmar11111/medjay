@@ -14,6 +14,8 @@ export interface SystemPromptInput {
   policy: Policy;
   style: StyleConfig;
   extraBanned?: readonly BannedPhrase[];
+  /** Names of the tools this run has; rules about a tool appear only when it exists. */
+  tools?: readonly string[];
 }
 
 const HARNESS_RULES = [
@@ -22,6 +24,12 @@ const HARNESS_RULES = [
   "Use only facts that carry a source and an as_of date, and cite both. If data is older than the notes say is fresh, say so instead of presenting it as current.",
   "If a tool answers approval_required, stop and tell the human exactly what you need allowed. Do not look for another way around it.",
   "Never reveal credentials, keys, phone numbers or email addresses.",
+];
+
+const GROWTH_RULES = [
+  "Before you say anything about performance, spend, conversions or what to change, call growth_scout. Do not take numbers from raw exports in data/imports when growth_scout can give them.",
+  "Say whose numbers they are: the platform's own, or checked against the CRM. Platform numbers alone are a claim, not proof.",
+  "Use growth_diagnose to find problems, growth_context for the owner's economics and claims and for what was already tested, and growth_simulate before recommending any increase in spend.",
 ];
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
@@ -39,6 +47,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
       .filter(Boolean)
       .join(" "),
     SPOTLIGHT_INSTRUCTION,
+    ...(input.tools?.includes("growth_scout") ? [GROWTH_RULES.join("\n")] : []),
   ];
   const directive = directiveFor(input.style, input.surface, input.language);
   if (directive) sections.push(directive);

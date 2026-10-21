@@ -276,7 +276,7 @@ function assemble(ctx: Ctx, header: RunHeader, nudge: boolean) {
       role: "system",
       kind: "system",
       label: "system",
-      text: buildSystemPrompt({ workspaceId: deps.workspaceId, surface, language: header.language, policy: deps.policy, style: deps.style, ...(deps.extraBanned ? { extraBanned: deps.extraBanned } : {}) }),
+      text: buildSystemPrompt({ workspaceId: deps.workspaceId, surface, language: header.language, policy: deps.policy, style: deps.style, tools: deps.registry.specs().map((t) => t.name), ...(deps.extraBanned ? { extraBanned: deps.extraBanned } : {}) }),
       trust: "trusted",
     },
     { id: "task", tier: 1, role: "user", kind: "task", label: "task", text: header.task, trust: "trusted", workspaceId: deps.workspaceId },
