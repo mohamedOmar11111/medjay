@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import type { Command } from "commander";
 import { diagnose } from "../analysis/diagnose.js";
-import { renderDiagnosis, renderIngest, renderSimulation, renderSnapshot } from "../analysis/render.js";
+import { renderDiagnosis, renderIngest, renderSimulation, renderSnapshot, renderSummary } from "../analysis/render.js";
 import { scout, type Snapshot } from "../analysis/scout.js";
+import { periodSummary, type PeriodSummary } from "../analysis/summary.js";
 import { loadUnitEconomics, simulate, type UnitEconomics } from "../analysis/simulate.js";
 import { simulatePlan } from "../plan/simulate-plan.js";
 import { Ledger } from "../audit/ledger.js";
@@ -21,6 +22,8 @@ export interface Opened {
   freshnessSlaHours: number;
   ingest: () => Promise<IngestReport>;
   snapshot: (days: number) => Snapshot;
+  /** Period summaries from reports with no date column (null when there are none). */
+  summary: () => PeriodSummary | null;
   close: () => void;
 }
 
@@ -51,6 +54,7 @@ export async function openAnalysis(workspaceOption: string | undefined): Promise
     freshnessSlaHours,
     ingest: () => ingestDropzone({ dropzoneDir, workspaceId: config.workspace.id, mappings, store, ledger, now: () => new Date(), actor: cliActor() }),
     snapshot: (days) => scout({ store, mappings, baseCurrency: currency, timezone, now: new Date(), days, freshnessSlaHours }),
+    summary: () => periodSummary(store),
     close: () => store.close(),
   };
 }
@@ -82,8 +86,12 @@ export function registerAnalysisCommands(program: Command): void {
         try {
           const report = opts.ingest ? await w.ingest() : undefined;
           const snapshot = w.snapshot(opts.days);
-          if (opts.json) out(JSON.stringify({ ingest: report ?? null, snapshot }, null, 2));
-          else out([...(report ? [renderIngest(report), ""] : []), renderSnapshot(snapshot)].join("\n"));
+          const summary = w.summary();
+          if (opts.json) out(JSON.stringify({ ingest: report ?? null, snapshot, summary }, null, 2));
+          else {
+            const body = snapshot.status === "ok" ? [renderSnapshot(snapshot), ...(summary ? ["", renderSummary(summary)] : [])] : [summary ? renderSummary(summary) : renderSnapshot(snapshot)];
+            out([...(report ? [renderIngest(report), ""] : []), ...body].join("\n"));
+          }
           return report?.files.some((f) => f.status === "rejected") ? 1 : 0;
         } finally {
           w.close();
@@ -109,8 +117,9 @@ export function registerAnalysisCommands(program: Command): void {
             event: "diagnose.completed",
             payload: { period: diagnosis.period, findings: diagnosis.findings.map((f) => ({ id: f.id, severity: f.severity })), top: diagnosis.top },
           });
-          if (opts.json) out(JSON.stringify(diagnosis, null, 2));
-          else out([...(report?.files.some((f) => f.status === "rejected") ? [renderIngest(report), ""] : []), renderDiagnosis(diagnosis)].join("\n"));
+          const summary = w.summary();
+          if (opts.json) out(JSON.stringify({ ...diagnosis, summary }, null, 2));
+          else out([...(report?.files.some((f) => f.status === "rejected") ? [renderIngest(report), ""] : []), diagnosis.status === "no_data" && summary ? renderSummary(summary) : renderDiagnosis(diagnosis)].join("\n"));
         } finally {
           w.close();
         }

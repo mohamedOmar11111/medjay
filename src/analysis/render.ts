@@ -4,6 +4,7 @@ import type { FileReport, IngestReport } from "../ingest/ingest.js";
 import type { Diagnosis } from "./diagnose.js";
 import type { Snapshot } from "./scout.js";
 import type { SimulationResult } from "./simulate.js";
+import type { PeriodSummary } from "./summary.js";
 
 const n0 = (n: number) => Math.round(n).toLocaleString("en-US");
 const n2 = (n: number | null) => (n === null ? "n/a" : n.toLocaleString("en-US", { maximumFractionDigits: 2 }));
@@ -24,6 +25,27 @@ export function renderIngest(report: IngestReport): string {
   for (const m of report.missing) lines.push(`  missing    no file matched mapping "${m}"`);
   for (const u of report.unmapped) lines.push(`  unmapped   ${u} (no mapping claims this file; it was not read)`);
   return lines.join("\n");
+}
+
+/** A period summary (platform UI reports with no date column), as plain text. */
+export function renderSummary(s: PeriodSummary): string {
+  const cur = s.currency;
+  const out: string[] = [];
+  out.push(`Period summary ${s.period.start}..${s.period.end} (${s.period.days} days), ${s.platform}, all amounts in ${cur}`, "");
+  out.push(`Spend ${n0(s.totals.spend)}   Conversions ${n0(s.totals.conversions)}   Cost per conversion ${n2(s.totals.cost_per_conversion)}`, "");
+  out.push(`${pad("Campaign", 28)}${rpad("Spend", 10)}${rpad("Conv.", 8)}${rpad("Cost/conv.", 12)}${rpad("Share", 8)}`);
+  for (const c of s.campaigns) out.push(`${pad(c.name.slice(0, 26), 28)}${rpad(n0(c.spend), 10)}${rpad(n0(c.conversions), 8)}${rpad(n2(c.cost_per_conversion), 12)}${rpad(pct(c.share_of_spend), 8)}`);
+  if (s.zero_conversion_total.terms > 0) {
+    out.push("", `${s.zero_conversion_total.terms} search terms spent ${cur} ${n0(s.zero_conversion_total.spend)} and never converted. Biggest:`);
+    for (const t of s.zero_conversion_terms) out.push(`  ${pad(t.term.slice(0, 36), 38)}${rpad(n0(t.spend), 8)}${rpad(String(t.clicks), 6)} clicks`);
+  }
+  if (s.devices.length > 0) {
+    out.push("", `${pad("Device", 20)}${rpad("Spend", 10)}${rpad("Conv.", 8)}${rpad("Cost/conv.", 12)}`);
+    for (const d of s.devices) out.push(`${pad(d.device, 20)}${rpad(n0(d.spend), 10)}${rpad(n0(d.conversions), 8)}${rpad(n2(d.cost_per_conversion), 12)}`);
+  }
+  for (const note of s.notes) out.push("", `Check: ${note}`);
+  out.push("", "These numbers come from the platform's own reports (not checked against your CRM).");
+  return out.join("\n");
 }
 
 export function renderSnapshot(s: Snapshot): string {

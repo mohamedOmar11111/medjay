@@ -18,6 +18,8 @@ export interface PeriodSummary {
   campaigns: SummaryCampaign[];
   /** Search terms that spent money and never converted, biggest spend first. */
   zero_conversion_terms: { term: string; spend: number; clicks: number }[];
+  /** All of them, not just the list above. */
+  zero_conversion_total: { terms: number; spend: number };
   /** Keywords by spend (the keyword report has no conversions, so it cannot say which never converted). */
   top_keywords: { keyword: string; spend: number; clicks: number }[];
   devices: { device: string; spend: number; clicks: number; conversions: number; cost_per_conversion: number | null }[];
@@ -68,6 +70,9 @@ export function periodSummary(store: Store): PeriodSummary | null {
     share_of_spend: totalSpend > 0 ? r3(c.spend / totalSpend) : 0,
   }));
 
+  const zeroTerms = rows("search_term")
+    .filter((t) => t.conversions === 0 && t.spend > 0)
+    .sort((a, b) => b.spend - a.spend);
   const deviceRows = rows("device").sort((a, b) => b.spend - a.spend);
   const dailyRows = rows("day").sort((a, b) => a.key.localeCompare(b.key));
   const notes: string[] = [];
@@ -86,11 +91,8 @@ export function periodSummary(store: Store): PeriodSummary | null {
     period: { start: chosen.start, end: chosen.end, days: inclusiveDays(chosen.start, chosen.end) },
     totals: { spend: totalSpend, conversions: totalConversions, clicks: sum(campaignRows, "clicks"), cost_per_conversion: cpa(totalSpend, totalConversions) },
     campaigns,
-    zero_conversion_terms: rows("search_term")
-      .filter((t) => t.conversions === 0 && t.spend > 0)
-      .sort((a, b) => b.spend - a.spend)
-      .slice(0, LIST_LIMIT)
-      .map((t) => ({ term: t.key, spend: t.spend, clicks: t.clicks })),
+    zero_conversion_terms: zeroTerms.slice(0, LIST_LIMIT).map((t) => ({ term: t.key, spend: t.spend, clicks: t.clicks })),
+    zero_conversion_total: { terms: zeroTerms.length, spend: r2(sum(zeroTerms, "spend")) },
     top_keywords: rows("keyword")
       .sort((a, b) => b.spend - a.spend)
       .slice(0, LIST_LIMIT)

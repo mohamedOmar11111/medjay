@@ -50,6 +50,7 @@ describe("periodSummary", () => {
     put("search_term", "paris", 20, 2, 3);
     put("search_term", "georgia tours", 153.42, 0, 12);
     put("search_term", "free", 0, 0, 0);
+    expect(periodSummary(store)!.zero_conversion_total).toEqual({ terms: 2, spend: 318.13 });
     expect(periodSummary(store)!.zero_conversion_terms).toEqual([
       { term: "thailand", spend: 164.71, clicks: 17 },
       { term: "georgia tours", spend: 153.42, clicks: 12 },
