@@ -5,6 +5,7 @@
 import type { Diagnosis, Finding } from "../analysis/diagnose.js";
 import type { PlatformSnapshot, Snapshot } from "../analysis/scout.js";
 import type { SimulationResult } from "../analysis/simulate.js";
+import type { PeriodSummary } from "../analysis/summary.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
 import type { ModelFailure } from "./model-errors.js";
@@ -286,6 +287,44 @@ export function helpAnswer(lang: Language, greeting: boolean): Answer {
 }
 
 export const languageAnswer = (lang: Language): Answer => ({ headline: pick(lang)("Okay, I'll answer in English.", "حسناً، سأجيبك بالعربية."), body: [], next: [NEXT.performance(lang), NEXT.waste(lang)] });
+
+/** "How are my ads doing?" when all there is are the platform's period reports (no CRM check yet). */
+export function summaryPerformanceAnswer(s: PeriodSummary, lang: Language): Answer {
+  const L = pick(lang);
+  const cur = s.currency;
+  const platform = s.platform.charAt(0).toUpperCase() + s.platform.slice(1);
+  const when = periodLabel(s.period.start, s.period.end, lang);
+  const each = s.totals.cost_per_conversion === null ? "" : L(`, about ${money(s.totals.cost_per_conversion, cur)} each`, `، بمتوسط ${money(s.totals.cost_per_conversion, cur)} للواحد`);
+  const headline = L(`Between ${when} you spent ${money(s.totals.spend, cur)} and ${platform} reports ${Math.round(s.totals.conversions)} conversions${each}.`, `بين ${when} صرفت ${money(s.totals.spend, cur)} و${platform} يسجل ${Math.round(s.totals.conversions)} تحويل${each}.`);
+  const body: string[] = [];
+  const top = s.campaigns[0];
+  if (top) body.push(L(`${top.name} took ${Math.round(top.share_of_spend * 100)}% of the budget${top.cost_per_conversion === null ? "." : ` at ${money(top.cost_per_conversion, cur)} per conversion.`}`, `${top.name} أخذت ${Math.round(top.share_of_spend * 100)}% من الميزانية${top.cost_per_conversion === null ? "." : ` بتكلفة ${money(top.cost_per_conversion, cur)} للتحويل.`}`));
+  const priced = s.campaigns.filter((c) => c.cost_per_conversion !== null).sort((a, b) => (a.cost_per_conversion as number) - (b.cost_per_conversion as number));
+  if (priced.length >= 2) {
+    const cheapest = priced[0]!;
+    const dearest = priced[priced.length - 1]!;
+    body.push(L(`${cheapest.name} is your cheapest at ${money(cheapest.cost_per_conversion as number, cur)} per conversion. ${dearest.name} is the dearest at ${money(dearest.cost_per_conversion as number, cur)}.`, `${cheapest.name} الأرخص بتكلفة ${money(cheapest.cost_per_conversion as number, cur)} للتحويل. ${dearest.name} الأغلى بتكلفة ${money(dearest.cost_per_conversion as number, cur)}.`));
+  }
+  if (s.zero_conversion_total.terms > 0) {
+    body.push(L(`${s.zero_conversion_total.terms} search terms spent ${money(s.zero_conversion_total.spend, cur)} and never converted.`, `${s.zero_conversion_total.terms} كلمة بحث صرفت ${money(s.zero_conversion_total.spend, cur)} وما جابت أي تحويل.`));
+  }
+  body.push(L(`These are ${platform}'s own numbers; I haven't checked them against your CRM yet, so treat them as the platform's claim.`, `هذي أرقام ${platform} نفسه؛ ما قارنتها مع الـ CRM للحين، فاعتبرها كلام المنصة.`));
+  return { headline, body, next: [NEXT.waste(lang), NEXT.data(lang)] };
+}
+
+/** "What's wasting money?" from the platform's period reports: search terms that never converted. */
+export function summaryWasteAnswer(s: PeriodSummary, lang: Language): Answer {
+  const L = pick(lang);
+  const cur = s.currency;
+  const z = s.zero_conversion_total;
+  if (z.terms === 0) return { headline: L("No search terms spent money without converting.", "ما في كلمات بحث صرفت فلوس بدون تحويل."), body: s.notes, next: [NEXT.performance(lang), NEXT.data(lang)] };
+  const biggest = s.zero_conversion_terms.slice(0, 3).map((t) => `• ${t.term}: ${money(t.spend, cur)} (${t.clicks} ${L("clicks", "نقرة")})`);
+  return {
+    headline: L(`${money(z.spend, cur)} went to ${z.terms} search terms that never turned into a conversion.`, `${money(z.spend, cur)} راحت لـ ${z.terms} كلمة بحث ما جابت أي تحويل.`),
+    body: [L("Biggest:", "الأكبر:"), ...biggest, L("Add them as negative keywords (I can prepare that for your approval).", "أضفها ككلمات سلبية (أقدر أجهّز ذلك لموافقتك)."), ...s.notes],
+    next: [NEXT.performance(lang), NEXT.data(lang)],
+  };
+}
 
 export const noModelAnswer = (lang: Language): Answer => ({
   headline: pick(lang)("I'm not connected to an AI model yet, so I can only answer the questions I know.", "ما أنا متصل بنموذج ذكاء اصطناعي للحين، فأقدر أجاوب على الأسئلة اللي أعرفها فقط."),

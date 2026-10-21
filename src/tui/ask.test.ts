@@ -99,6 +99,39 @@ describe("an empty workspace", () => {
   });
 });
 
+describe("answerIntent when only period summaries exist", () => {
+  const summary = {
+    platform: "google",
+    currency: "SAR",
+    period: { start: "2026-09-01", end: "2026-09-30", days: 30 },
+    totals: { spend: 1000, conversions: 10, clicks: 0, cost_per_conversion: 100 },
+    campaigns: [{ name: "georgia", spend: 1000, conversions: 10, cost_per_conversion: 100, share_of_spend: 1 }],
+    zero_conversion_terms: [{ term: "thailand", spend: 164.71, clicks: 17 }],
+    zero_conversion_total: { terms: 1, spend: 164.71 },
+    top_keywords: [],
+    devices: [],
+    daily: [],
+    notes: [],
+  };
+  it("performance answers from the summary instead of saying there is no data", async () => {
+    const { ctx } = ctxWith(() => ({ out: JSON.stringify({ ingest: null, snapshot: { status: "no_data" }, summary }) }));
+    const r = await answerIntent({ intent: "performance", params: {} }, ctx);
+    expect(r.text).toMatch(/^# Between 1–30 Sep you spent SAR 1,000/);
+    expect(r.text).not.toMatch(/don.t have any ad numbers/);
+  });
+  it("waste answers from the summary's search terms", async () => {
+    const { ctx } = ctxWith(() => ({ out: JSON.stringify({ status: "no_data", period: null, findings: [], top: [], summary }) }));
+    const r = await answerIntent({ intent: "waste", params: {} }, ctx);
+    expect(r.text).toContain("1 search terms that never turned into a conversion");
+    expect(r.text).toContain("thailand: SAR 165");
+  });
+  it("still says there is no data when there is neither a snapshot nor a summary", async () => {
+    const { ctx } = ctxWith(() => ({ out: JSON.stringify({ ingest: null, snapshot: { status: "no_data" }, summary: null }) }));
+    const r = await answerIntent({ intent: "performance", params: {} }, ctx);
+    expect(r.text).toMatch(/^# I don.t have any ad numbers yet/);
+  });
+});
+
 describe("askAgent", () => {
   const finished = (over: Partial<Extract<RunEvent, { type: "run.finished" }>> = {}): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 10, output: 5 }, cost_usd: 0.001, cost_known: true, final_text: "", proposals: 0, ...over });
   const stream = (...events: RunEvent[]) => events.map(encodeEvent).join("");

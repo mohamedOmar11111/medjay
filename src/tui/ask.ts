@@ -5,7 +5,8 @@ import { join } from "node:path";
 import type { Diagnosis } from "../analysis/diagnose.js";
 import type { Snapshot } from "../analysis/scout.js";
 import type { SimulationResult } from "../analysis/simulate.js";
-import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, modelErrorAnswer, performanceAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
+import type { PeriodSummary } from "../analysis/summary.js";
+import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, modelErrorAnswer, performanceAnswer, summaryPerformanceAnswer, summaryWasteAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
 import { classifyModelFailure, type ModelFailure } from "./model-errors.js";
@@ -77,12 +78,14 @@ export async function answerIntent(routed: Routed, ctx: AskContext): Promise<Rep
   switch (intent) {
     case "performance": {
       const c = await collect(ctx, ["scout", "--json", "--workspace", dir]);
-      const data = json<{ snapshot: Snapshot }>(c);
+      const data = json<{ snapshot: Snapshot; summary?: PeriodSummary | null }>(c);
+      if (data?.snapshot.status === "no_data" && data.summary) return reply(summaryPerformanceAnswer(data.summary, lang), lang, mappingNote(c, lang));
       return data ? reply(performanceAnswer(data.snapshot, lang, dropzone), lang, mappingNote(c, lang)) : failed(c);
     }
     case "waste": {
       const c = await collect(ctx, ["diagnose", "--json", "--workspace", dir]);
-      const data = json<Diagnosis>(c);
+      const data = json<Diagnosis & { summary?: PeriodSummary | null }>(c);
+      if (data?.status === "no_data" && data.summary) return reply(summaryWasteAnswer(data.summary, lang), lang, mappingNote(c, lang));
       return data ? reply(wasteAnswer(data, lang, dropzone), lang, mappingNote(c, lang)) : failed(c);
     }
     case "scale": {

@@ -3,7 +3,8 @@ import { diagnose } from "../analysis/diagnose.js";
 import { scout, type Snapshot } from "../analysis/scout.js";
 import { loadUnitEconomics, simulate } from "../analysis/simulate.js";
 import { FIXTURE_NOW, setupIngest, type IngestHarness } from "../../test/helpers/ingest.js";
-import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, modelErrorAnswer, noDataAnswer, noModelAnswer, performanceAnswer, periodLabel, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer } from "./answers.js";
+import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, modelErrorAnswer, noDataAnswer, noModelAnswer, performanceAnswer, periodLabel, plansAnswer, renderAnswer, scaleAnswer, summaryPerformanceAnswer, summaryWasteAnswer, trustAnswer, wasteAnswer, type Answer } from "./answers.js";
+import type { PeriodSummary } from "../analysis/summary.js";
 import { emptyDashboard, type Dashboard } from "./dashboard.js";
 
 const JARGON = /\bMER\b|P10|P50|P90|calibration|Monte Carlo|percentile|ROAS|adset|\bUTM\b/i;
@@ -171,5 +172,59 @@ describe("modelErrorAnswer", () => {
   });
   it("never repeats the old catch-all for a stored-but-rejected key", () => {
     expect(text(modelErrorAnswer(f("key_rejected"), "en"))).not.toMatch(/not connected to an AI model yet/);
+  });
+});
+
+describe("answers from a period summary (platform reports with no CRM yet)", () => {
+  const S: PeriodSummary = {
+    platform: "google",
+    currency: "SAR",
+    period: { start: "2026-09-01", end: "2026-09-30", days: 30 },
+    totals: { spend: 33304.31, conversions: 405, clicks: 0, cost_per_conversion: 82.23 },
+    campaigns: [
+      { name: "georgia", spend: 8450, conversions: 78, cost_per_conversion: 108.33, share_of_spend: 0.254 },
+      { name: "Europe", spend: 6682.09, conversions: 132, cost_per_conversion: 50.62, share_of_spend: 0.201 },
+      { name: "Bosnia", spend: 688, conversions: 3, cost_per_conversion: 229.21, share_of_spend: 0.021 },
+    ],
+    zero_conversion_terms: [
+      { term: "thailand", spend: 164.71, clicks: 17 },
+      { term: "جورجيا سياحة", spend: 153.42, clicks: 13 },
+      { term: "تايلاند", spend: 152.02, clicks: 35 },
+      { term: "fourth", spend: 100, clicks: 5 },
+    ],
+    zero_conversion_total: { terms: 87, spend: 3843.2 },
+    top_keywords: [],
+    devices: [],
+    daily: [],
+    notes: ["The search term report has exactly 100 rows, which usually means the platform cut it off; there may be more search terms than shown here."],
+  };
+
+  it("leads with spend and what it bought, names the cheapest and dearest campaign, and is honest about the source", () => {
+    const a = summaryPerformanceAnswer(S, "en");
+    expect(a.headline).toBe("Between 1–30 Sep you spent SAR 33,304 and Google reports 405 conversions, about SAR 82 each.");
+    const body = a.body.join("\n");
+    expect(body).toContain("Europe is your cheapest at SAR 51 per conversion");
+    expect(body).toContain("Bosnia is the dearest at SAR 229");
+    expect(body).toContain("87 search terms spent SAR 3,843 and never converted");
+    expect(body).toMatch(/Google's own numbers/);
+    expect(text(a)).not.toMatch(JARGON);
+  });
+
+  it("names the biggest wasters with their cost and offers the safe next step", () => {
+    const a = summaryWasteAnswer(S, "en");
+    expect(a.headline).toBe("SAR 3,843 went to 87 search terms that never turned into a conversion.");
+    const body = a.body.join("\n");
+    expect(body).toContain("thailand: SAR 165");
+    expect(body).toContain("جورجيا سياحة: SAR 153");
+    expect(body).not.toContain("fourth");
+    expect(body).toMatch(/negative keywords \(I can prepare that for your approval\)/);
+    expect(body).toMatch(/cut it off/);
+  });
+
+  it("answers in Arabic with the same numbers", () => {
+    const a = summaryWasteAnswer(S, "ar");
+    expect(a.headline).toMatch(/[؀-ۿ]/);
+    expect(a.headline).toContain("SAR 3,843");
+    expect(summaryPerformanceAnswer(S, "ar").headline).toContain("SAR 33,304");
   });
 });
