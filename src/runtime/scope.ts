@@ -30,6 +30,8 @@ export interface ScopeMount {
   path: string;
   /** owner: the owner's own words. untrusted: handled like outside data. */
   trust: "owner" | "untrusted";
+  /** Folders inside the mount a run may read; leave out to open the whole mount. */
+  allow?: readonly string[];
 }
 
 export interface RunScopeOptions {
@@ -48,7 +50,16 @@ const MOUNT_DENIED_NAME = /^\.env(?:\..*)?$|\.(?:pem|key|p12|pfx|jks)$|^signing|
 interface Mounted {
   root: string;
   trust: "owner" | "untrusted";
+  /** Lower-cased folder prefixes a run may read; null when the whole mount is open. */
+  allow: string[] | null;
 }
+
+const cleanPrefix = (p: string): string => path.posix.normalize(p.replaceAll("\\", "/")).replace(/^\.\//, "").replace(/^\/+|\/+$/g, "").toLowerCase();
+
+/** Whether `n` is one of the allowed folders or inside one. */
+const insideAllowed = (mounted: Mounted, n: string): boolean => mounted.allow === null || mounted.allow.some((p) => n.toLowerCase() === p || n.toLowerCase().startsWith(`${p}/`));
+/** Whether `n` is a folder on the way down to an allowed folder (so it may be listed, not read into). */
+const leadsToAllowed = (mounted: Mounted, n: string): boolean => mounted.allow !== null && (n === "" || mounted.allow.some((p) => p.startsWith(`${n.toLowerCase()}/`)));
 
 export interface ReadResult {
   text: string;
@@ -102,7 +113,8 @@ export class RunScope {
       if (!/^[a-z][a-z0-9_-]+$/.test(mount.name)) continue;
       try {
         const real = await realpath(path.resolve(mount.path));
-        if ((await stat(real)).isDirectory()) mounts.set(mount.name, { root: real, trust: mount.trust });
+        const allow = (mount.allow ?? []).map(cleanPrefix).filter((p) => p !== "" && p !== ".");
+        if ((await stat(real)).isDirectory()) mounts.set(mount.name, { root: real, trust: mount.trust, allow: allow.length > 0 ? allow : null });
       } catch {
         /* a mount whose folder is not there is simply not mounted */
       }
@@ -147,6 +159,7 @@ export class RunScope {
   private async resolveMount(name: string, inner: string, kind: "file" | "dir"): Promise<{ abs: string; rel: string }> {
     const mounted = this.mountOrThrow(name);
     const n = this.normalizeInner(inner, kind === "dir");
+    this.assertInsideAllowed(mounted, name, n, kind);
     let real: string;
     try {
       real = await realpath(path.resolve(mounted.root, n));
@@ -157,10 +170,17 @@ export class RunScope {
     if (!isInside(mounted.root, real)) throw new ScopeError(`"${name}:${n}" resolves outside the mounted folder`, "outside");
     const relReal = path.relative(mounted.root, real).split(path.sep).join("/");
     if (relReal.split("/").some((s) => MOUNT_DENIED_SEGMENT.test(s))) throw new ScopeError(`"${name}:${n}" resolves to a location a run may not read`, "outside");
+    // a link inside an allowed folder must not lead into a folder that is not allowed
+    if (!insideAllowed(mounted, relReal) && !(kind === "dir" && leadsToAllowed(mounted, relReal))) throw new ScopeError(`"${name}:${n}" resolves to a part of the mounted folder this workspace may not read`, "outside");
     const info = await stat(real);
     if (kind === "file" && !info.isFile()) throw new ScopeError(`"${name}:${n}" is not a file`, "not_file");
     if (kind === "dir" && !info.isDirectory()) throw new ScopeError(`"${name}:${n}" is not a folder`, "not_dir");
     return { abs: real, rel: `${name}:${n}` };
+  }
+
+  private assertInsideAllowed(mounted: Mounted, name: string, n: string, kind: "file" | "dir"): void {
+    if (insideAllowed(mounted, n) || (kind === "dir" && leadsToAllowed(mounted, n))) return;
+    throw new ScopeError(`"${name}:${n}" is not part of what this workspace may read from "${name}:" (its own client folder and the shared folders)`, "denied");
   }
 
   /** True for the owner's own words: workspace files outside the dropzone, and files from an owner mount. */
@@ -184,8 +204,10 @@ export class RunScope {
   assertAllowed(rel: string): void {
     const ref = this.mountRef(rel);
     if (ref) {
-      this.mountOrThrow(ref.name);
-      this.normalizeInner(ref.inner, true);
+      const mounted = this.mountOrThrow(ref.name);
+      const n = this.normalizeInner(ref.inner, true);
+      // the kind is not known without touching the disk; a folder on the way down is allowed here and checked on read
+      if (n !== "" && !insideAllowed(mounted, n) && !leadsToAllowed(mounted, n)) throw new ScopeError(`"${rel}" is not part of what this workspace may read from "${ref.name}:"`, "denied");
       return;
     }
     const n = this.normalize(rel, true);
@@ -216,9 +238,13 @@ export class RunScope {
     const n = ref ? "mount" : this.normalize(rel, true);
     if (n === "") return this.listTop();
     const mountScoped = ref !== null;
-    const { abs } = ref ? await this.resolveMount(ref.name, ref.inner, "dir") : await this.resolve(n, "dir");
+    const { abs, rel: resolvedRel } = ref ? await this.resolveMount(ref.name, ref.inner, "dir") : await this.resolve(n, "dir");
+    const mountedHere = ref ? this.mounts.get(ref.name) : undefined;
+    const innerHere = ref ? resolvedRel.slice(ref.name.length + 1) : "";
     const out: ListEntry[] = [];
     for (const entry of await readdir(abs, { withFileTypes: true })) {
+      const child = innerHere === "" ? entry.name : `${innerHere}/${entry.name}`;
+      if (mountedHere && !insideAllowed(mountedHere, child) && !leadsToAllowed(mountedHere, child)) continue;
       if (entry.isSymbolicLink() || (mountScoped ? MOUNT_DENIED_SEGMENT.test(entry.name) || MOUNT_DENIED_NAME.test(entry.name) : DENIED_SEGMENT.test(entry.name) || DENIED_NAME.test(entry.name))) continue;
       const info = await stat(path.join(abs, entry.name)).catch(() => undefined);
       if (!info) continue;

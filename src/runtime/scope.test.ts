@@ -252,3 +252,63 @@ describe("RunScope mounts (named, read-only folders outside the workspace)", () 
     expect(await code(scope.readText("gone:x.md"))).toBe("denied");
   });
 });
+
+describe("RunScope mounts limited to allowed folders (one client's part of a shared folder)", () => {
+  async function hq(allow: string[], name = "w") {
+    const dir = await workspace(name);
+    const base = join(root, `hq-${name}`);
+    const files: [string, string][] = [
+      ["01_Active_Clients/etlaala/icp.md", "etlaala icp"],
+      ["01_Active_Clients/etlaala/icp-etlaala-com.md", "etlaala com"],
+      ["01_Active_Clients/aqarverse/brand.md", "aqarverse brand"],
+      ["03_Global_Assets/frameworks/standards.md", "rules"],
+      ["99_Private/notes.md", "private"],
+    ];
+    for (const [rel, text] of files) {
+      await mkdir(join(base, rel, ".."), { recursive: true });
+      await writeFile(join(base, rel), text, "utf8");
+    }
+    const scope = await scopeFor(dir, { mounts: [{ name: "hq", path: base, trust: "owner", allow }] });
+    return { scope, base };
+  }
+  const ALLOW = ["01_Active_Clients/etlaala", "03_Global_Assets"];
+
+  it("reads this client's folder and the shared folder, nothing else", async () => {
+    const { scope } = await hq(ALLOW);
+    expect((await scope.readText("hq:01_Active_Clients/etlaala/icp.md")).text).toBe("etlaala icp");
+    expect((await scope.readText("hq:03_Global_Assets/frameworks/standards.md")).text).toBe("rules");
+    expect(await code(scope.readText("hq:01_Active_Clients/aqarverse/brand.md"))).toBe("denied");
+    expect(await code(scope.readText("hq:99_Private/notes.md"))).toBe("denied");
+    expect(() => scope.assertAllowed("hq:01_Active_Clients/aqarverse/brand.md")).toThrow(ScopeError);
+    expect(() => scope.assertAllowed("hq:01_Active_Clients/etlaala/icp.md")).not.toThrow();
+  });
+
+  it("compares folder names without caring about upper and lower case, as Windows does", async () => {
+    const { scope } = await hq(ALLOW, "w2");
+    expect((await scope.readText("hq:01_active_clients/ETLAALA/icp.md")).text).toBe("etlaala icp");
+  });
+
+  it("shows only the way down to the allowed folders when listing", async () => {
+    const { scope } = await hq(ALLOW, "w3");
+    expect((await scope.list("hq:")).map((e) => e.name).sort()).toEqual(["01_Active_Clients", "03_Global_Assets"]);
+    expect((await scope.list("hq:01_Active_Clients")).map((e) => e.name)).toEqual(["etlaala"]);
+    expect((await scope.list("hq:01_Active_Clients/etlaala")).map((e) => e.name).sort()).toEqual(["icp-etlaala-com.md", "icp.md"]);
+    expect(await code(scope.list("hq:99_Private"))).toBe("denied");
+    expect(await code(scope.list("hq:01_Active_Clients/aqarverse"))).toBe("denied");
+  });
+
+  it("does not let a link inside an allowed folder lead into another client's folder", async () => {
+    const { scope, base } = await hq(ALLOW, "w4");
+    try {
+      await symlink(join(base, "01_Active_Clients", "aqarverse"), join(base, "01_Active_Clients", "etlaala", "peek"), "junction");
+    } catch {
+      return;
+    }
+    expect(await code(scope.readText("hq:01_Active_Clients/etlaala/peek/brand.md"))).toBe("outside");
+  });
+
+  it("a mount with no allowed list stays whole", async () => {
+    const { scope } = await hq([], "w5");
+    expect((await scope.readText("hq:99_Private/notes.md")).text).toBe("private");
+  });
+});
