@@ -68,7 +68,11 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
   const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home }));
   if (discovery.skills.length > 0) for (const tool of skillTools(discovery)) registry.register(tool);
   const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") || p.startsWith("~\\") ? join(home, p.slice(2)) : p);
-  const mounts = config.mounts.map((m) => ({ name: m.name, path: resolve(expand(m.path)), trust: m.trust }));
+  const mounts = config.mounts.map((m) => {
+    // the mount that holds this client's documents is limited to that client's folder and the shared ones
+    const mapped = config.client_docs?.mount === m.name ? [config.client_docs.folder, ...config.client_docs.shared] : [];
+    return { name: m.name, path: resolve(expand(m.path)), trust: m.trust, allow: [...(m.allow_paths ?? []), ...mapped] };
+  });
   const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id, mounts });
   const store = Store.open(join(dir, STORE_PATH));
 

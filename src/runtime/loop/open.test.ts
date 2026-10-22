@@ -87,3 +87,34 @@ describe("openRun with mounts", () => {
     opened.close();
   });
 });
+
+describe("openRun with a client folder in a mount", () => {
+  async function setup() {
+    const hq = join(root, "hq");
+    for (const [rel, text] of [
+      ["01_Active_Clients/etlaala/icp.md", "etlaala icp"],
+      ["01_Active_Clients/aqarverse/brand.md", "aqarverse brand"],
+      ["03_Global_Assets/frameworks/standards.md", "rules"],
+      ["02_Client_Templates/_template/brand.md", "template"],
+    ] as const) {
+      await mkdir(join(hq, rel, ".."), { recursive: true });
+      await writeFile(join(hq, rel), text, "utf8");
+    }
+    const file = join(dir, "workspace.yaml");
+    const config = parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    config.mounts = [{ name: "hq", path: hq, trust: "owner" }];
+    config.client_docs = { mount: "hq", folder: "01_Active_Clients/etlaala", shared: ["03_Global_Assets"] };
+    await writeFile(file, stringify(config));
+    return openRun({ dir, slot: "reasoning", driver: NO_MODEL, home: join(root, "no-home") });
+  }
+
+  it("lets a run read only this client's folder and the shared folders of that mount", async () => {
+    const opened = await setup();
+    const scope = opened.deps.scope;
+    expect((await scope.readText("hq:01_Active_Clients/etlaala/icp.md")).text).toBe("etlaala icp");
+    expect((await scope.readText("hq:03_Global_Assets/frameworks/standards.md")).text).toBe("rules");
+    await expect(scope.readText("hq:01_Active_Clients/aqarverse/brand.md")).rejects.toThrow(/not part of what this workspace may read/);
+    await expect(scope.readText("hq:02_Client_Templates/_template/brand.md")).rejects.toThrow();
+    opened.close();
+  });
+});
