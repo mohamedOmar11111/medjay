@@ -214,6 +214,18 @@ export class RunScope {
     if (n !== "" && !this.allowed(n)) throw new ScopeError(`"${rel}" is outside what a run may read`, "denied");
   }
 
+  /** Whether a file can be read through this scope: false for anything missing, denied or outside. */
+  async exists(rel: string): Promise<boolean> {
+    try {
+      const ref = this.mountRef(rel);
+      await (ref ? this.resolveMount(ref.name, ref.inner, "file") : this.resolve(rel, "file"));
+      return true;
+    } catch (error) {
+      if (error instanceof ScopeError) return false;
+      throw error;
+    }
+  }
+
   async readText(rel: string): Promise<ReadResult> {
     const ref = this.mountRef(rel);
     const { abs, rel: n } = ref ? await this.resolveMount(ref.name, ref.inner, "file") : await this.resolve(rel, "file");
