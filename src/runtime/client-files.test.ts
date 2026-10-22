@@ -61,3 +61,12 @@ describe("resolveClientFiles", () => {
     expect(files["icp.md"]).toMatchObject({ found: null, via: null });
   });
 });
+
+describe("resolveClientFiles with unusual names", () => {
+  it("treats a name as plain text, never as a pattern", async () => {
+    const scope = await scopeWith();
+    const files = await resolveClientFiles(scope, CLIENT, ["(a+)+$.md", "icp.md"]);
+    expect(files.find((f) => f.name === "(a+)+$.md")).toMatchObject({ found: null, related: [] });
+    expect(files.find((f) => f.name === "icp.md")!.related).toHaveLength(2);
+  });
+});

@@ -55,10 +55,15 @@ export async function resolveClientFiles(scope: RunScope, clientDocs: ClientDocs
     }
     let related: string[] = [];
     if (clientFolder) {
-      const stem = name.replace(/\.md$/i, "").toLowerCase();
+      const stem = (name.toLowerCase().endsWith(".md") ? name.slice(0, -3) : name).toLowerCase();
       const entries = await scope.list(clientFolder).catch(() => []);
+      // plain string checks: a name is text, never a pattern
+      const isVariant = (file: string) => {
+        const lower = file.toLowerCase();
+        return lower !== name.toLowerCase() && lower.endsWith(".md") && lower.startsWith(stem) && "-_.".includes(lower.charAt(stem.length)) && lower.length > stem.length + 4;
+      };
       related = entries
-        .filter((e) => e.type === "file" && e.name.toLowerCase() !== name.toLowerCase() && new RegExp(`^${stem}[-_.].+\\.md$`, "i").test(e.name))
+        .filter((e) => e.type === "file" && isVariant(e.name))
         .map((e) => `${clientFolder}/${e.name}`);
     }
     out.push({ name, found, via, related });
