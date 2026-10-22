@@ -37,13 +37,15 @@ function toolLines(s: SkillEntry): string[] {
   ];
 }
 
-/** Edit a list in workspace.yaml, keeping the owner's comments, and undo it if the file stops loading. */
-async function editList<T>(dir: string, keys: string[], change: (current: T[]) => T[]): Promise<void> {
+/** Change one value in workspace.yaml, keeping the owner's comments, and undo it if the file stops loading. */
+async function editValue<T>(dir: string, keys: string[], change: (current: T | undefined) => T | undefined): Promise<void> {
   const file = join(dir, "workspace.yaml");
   const original = await readFile(file, "utf8");
   const doc = parseDocument(original);
-  const current = (keys.reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], doc.toJS()) ?? []) as T[];
-  doc.setIn(keys, change(current));
+  const current = keys.reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], doc.toJS()) as T | undefined;
+  const next = change(current);
+  if (next === undefined) doc.deleteIn(keys);
+  else doc.setIn(keys, next);
   await writeFile(file, doc.toString());
   try {
     await loadWorkspace(dir);
@@ -52,6 +54,9 @@ async function editList<T>(dir: string, keys: string[], change: (current: T[]) =
     throw error;
   }
 }
+
+/** Edit a list in workspace.yaml (see editValue). */
+const editList = <T>(dir: string, keys: string[], change: (current: T[]) => T[]): Promise<void> => editValue<T[]>(dir, keys, (current) => change(current ?? []));
 
 export function registerSkillsCommands(program: Command): void {
   const skills = program.command("skills").description("the skills Medjay can find, and where each one came from");
@@ -160,7 +165,16 @@ interface MountItem {
   name: string;
   path: string;
   trust: "owner" | "untrusted";
+  allow_paths?: string[];
 }
+
+interface ClientDocsItem {
+  mount: string;
+  folder: string;
+  shared: string[];
+}
+
+const splitList = (value: string | undefined): string[] => (value ?? "").split(",").map((v) => v.trim()).filter((v) => v !== "");
 
 export function registerMountCommands(program: Command): void {
   const mount = program.command("mount").description("folders outside the workspace a run may read (read-only), written as name:path");
@@ -169,19 +183,57 @@ export function registerMountCommands(program: Command): void {
     .command("add <name> <path>")
     .description("let runs read a folder, for example your HQ repo, as name:path (nothing is copied or written)")
     .addOption(new Option("--trust <level>", "owner: your own words; untrusted: someone else's, handled with care").choices(["owner", "untrusted"]).default("untrusted"))
+    .option("--allow <folders>", "read only these folders of it (comma separated, relative to the mounted folder)")
     .option("--workspace <dir>", "workspace folder")
-    .action((name: string, path: string, opts: { trust: "owner" | "untrusted"; workspace?: string }) =>
+    .action((name: string, path: string, opts: { trust: "owner" | "untrusted"; allow?: string; workspace?: string }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
         if (!/^[a-z][a-z0-9_-]+$/.test(name)) throw new Error("a mount name is at least two characters: lowercase letters, digits, dash or underscore");
         const target = resolve(expandHome(path));
         if (!(await stat(target).then((s) => s.isDirectory(), () => false))) throw new Error(`${target} is not a folder`);
+        const allow = splitList(opts.allow);
         await editList<MountItem>(dir, ["mounts"], (current) => {
           if (current.some((m) => m.name === name)) throw new Error(`${name} is already mounted`);
-          return [...current, { name, path: target, trust: opts.trust }];
+          return [...current, { name, path: target, trust: opts.trust, ...(allow.length > 0 ? { allow_paths: allow } : {}) }];
         });
-        await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "mount.added", payload: { name, path: target, trust: opts.trust } });
-        out(`mounted ${name} (${opts.trust}): ${target}\nRuns read it as ${name}:<path>, read-only.`);
+        await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "mount.added", payload: { name, path: target, trust: opts.trust, allow_paths: allow } });
+        out(`mounted ${name} (${opts.trust}): ${target}\nRuns read it as ${name}:<path>, read-only${allow.length > 0 ? `, only in: ${allow.join(", ")}` : ""}.`);
+      }),
+    );
+
+  mount
+    .command("client <mount> <folder>")
+    .description("say which folder of a mount holds THIS workspace's client documents; runs can then read only that folder and the shared ones")
+    .option("--shared <folders>", "folders any client may use, such as templates and frameworks (comma separated)")
+    .option("--workspace <dir>", "workspace folder")
+    .action((mountName: string, folder: string, opts: { shared?: string; workspace?: string }) =>
+      guarded(async () => {
+        const dir = await workspaceDirOrThrow(opts.workspace);
+        const { config } = await loadWorkspace(dir);
+        const mounted = config.mounts.find((m) => m.name === mountName);
+        if (!mounted) throw new Error(`${mountName} is not mounted; add it with mdj mount add`);
+        const clean = folder.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+        const inside = resolve(expandHome(mounted.path), clean);
+        if (clean === "" || clean.split("/").includes("..") || !(await stat(inside).then((s) => s.isDirectory(), () => false))) {
+          throw new Error(`${folder} is not a folder inside ${mountName}: ${expandHome(mounted.path)}`);
+        }
+        const shared = splitList(opts.shared);
+        await editValue<ClientDocsItem>(dir, ["client_docs"], () => ({ mount: mountName, folder: clean, shared }));
+        await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "mount.client_mapped", payload: { mount: mountName, folder: clean, shared } });
+        out(`this workspace's client folder is ${mountName}:${clean}${shared.length > 0 ? `; shared: ${shared.join(", ")}` : ""}\nRuns can read only those parts of ${mountName}:.`);
+      }),
+    );
+
+  mount
+    .command("unclient")
+    .description("remove the client folder mapping (the mount stays)")
+    .option("--workspace <dir>", "workspace folder")
+    .action((opts: { workspace?: string }) =>
+      guarded(async () => {
+        const dir = await workspaceDirOrThrow(opts.workspace);
+        await editValue<ClientDocsItem>(dir, ["client_docs"], () => undefined);
+        await new Ledger(join(dir, LEDGER_FILE)).append({ actor: cliActor(), event: "mount.client_unmapped", payload: {} });
+        out("client folder mapping removed");
       }),
     );
 
@@ -198,7 +250,14 @@ export function registerMountCommands(program: Command): void {
           return;
         }
         out(`${"NAME".padEnd(14)}${"TRUST".padEnd(12)}PATH`);
-        for (const m of config.mounts) out(`${m.name.padEnd(14)}${m.trust.padEnd(12)}${m.path}   (read as ${m.name}:)`);
+        for (const m of config.mounts) {
+          out(`${m.name.padEnd(14)}${m.trust.padEnd(12)}${m.path}   (read as ${m.name}:)`);
+          if (m.allow_paths && m.allow_paths.length > 0) out(`${"".padEnd(26)}only: ${m.allow_paths.join(", ")}`);
+          if (config.client_docs?.mount === m.name) {
+            out(`${"".padEnd(26)}this workspace's client folder: ${m.name}:${config.client_docs.folder}`);
+            if (config.client_docs.shared.length > 0) out(`${"".padEnd(26)}shared: ${config.client_docs.shared.join(", ")}`);
+          }
+        }
       }),
     );
 
@@ -209,6 +268,8 @@ export function registerMountCommands(program: Command): void {
     .action((name: string, opts: { workspace?: string }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
+        const { config } = await loadWorkspace(dir);
+        if (config.client_docs?.mount === name) throw new Error(`${name} holds this workspace's client folder; run mdj mount unclient first`);
         await editList<MountItem>(dir, ["mounts"], (current) => {
           const next = current.filter((m) => m.name !== name);
           if (next.length === current.length) throw new Error(`${name} is not mounted`);

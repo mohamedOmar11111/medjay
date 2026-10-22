@@ -115,3 +115,35 @@ describe("mdj mount add / list / remove", () => {
     expect((await verifyLedger(join(ws, ".medjay", "audit-log.jsonl"))).ok).toBe(true);
   });
 });
+
+describe("mdj mount client / unclient and --allow", () => {
+  it("maps the workspace to its folder in a mount, limits the mount, and shows it in the list", async () => {
+    await mkdir(join(hq, "clients", "etlaala"), { recursive: true });
+    await mkdir(join(hq, "clients", "other"), { recursive: true });
+    await mkdir(join(hq, "shared"), { recursive: true });
+    expect((await mdj("mount", "add", "hq", hq, "--trust", "owner", "--allow", "shared", "--workspace", ws)).code).toBe(0);
+    const r = await mdj("mount", "client", "hq", "clients/etlaala", "--shared", "templates,frameworks", "--workspace", ws);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/hq:clients\/etlaala/);
+    const yaml = await readFile(join(ws, "workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/client_docs:/);
+    expect(yaml).toMatch(/folder: clients\/etlaala/);
+    expect(yaml).toMatch(/allow_paths:/);
+    const list = await mdj("mount", "list", "--workspace", ws);
+    expect(list.stdout).toMatch(/this workspace's client folder: hq:clients\/etlaala/);
+    expect(list.stdout).toMatch(/shared/);
+  });
+
+  it("refuses a mount that is not there and a folder that is not inside the mount", async () => {
+    expect((await mdj("mount", "client", "nope", "x", "--workspace", ws)).stderr).toMatch(/not mounted/);
+    expect((await mdj("mount", "client", "hq", "clients/missing", "--workspace", ws)).stderr).toMatch(/not a folder inside/);
+    expect((await mdj("mount", "client", "hq", "../elsewhere", "--workspace", ws)).code).toBe(1);
+  });
+
+  it("unclient removes the mapping again and remove cleans up the mount", async () => {
+    expect((await mdj("mount", "unclient", "--workspace", ws)).code).toBe(0);
+    expect(await readFile(join(ws, "workspace.yaml"), "utf8")).not.toMatch(/client_docs:\s*\n\s+mount/);
+    expect((await mdj("mount", "remove", "hq", "--workspace", ws)).code).toBe(0);
+    expect((await verifyLedger(join(ws, ".medjay", "audit-log.jsonl"))).ok).toBe(true);
+  });
+});
