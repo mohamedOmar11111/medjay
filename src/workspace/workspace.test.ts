@@ -474,3 +474,50 @@ describe("mounts section", () => {
     expect((await issuesOf(dir)).some((i) => /duplicate/i.test(i.message))).toBe(true);
   });
 });
+
+describe("client_docs and allow_paths (which part of a mounted folder belongs to this client)", () => {
+  const withMount = (c: Record<string, any>, extra: Record<string, unknown> = {}) => {
+    c.mounts = [{ name: "hq", path: "C:/hq", trust: "owner", ...extra }];
+  };
+
+  it("accept a client folder inside a mount plus shared folders, and default to nothing shared", async () => {
+    const dir = await make();
+    await edit(dir, (c) => {
+      withMount(c, { allow_paths: ["03_Global_Assets"] });
+      c.client_docs = { mount: "hq", folder: "01_Active_Clients/etlaala" };
+    });
+    const { config } = await loadWorkspace(dir);
+    expect(config.client_docs).toEqual({ mount: "hq", folder: "01_Active_Clients/etlaala", shared: [] });
+    expect(config.mounts[0]).toMatchObject({ allow_paths: ["03_Global_Assets"] });
+    await edit(dir, (c) => {
+      c.client_docs = { mount: "hq", folder: "01_Active_Clients/etlaala", shared: ["03_Global_Assets", "02_Client_Templates"] };
+    });
+    expect((await loadWorkspace(dir)).config.client_docs?.shared).toEqual(["03_Global_Assets", "02_Client_Templates"]);
+  });
+
+  it("is absent by default", async () => {
+    expect((await loadWorkspace(await make())).config.client_docs).toBeUndefined();
+  });
+
+  it("rejects a mapping to a mount that is not defined", async () => {
+    const dir = await make();
+    await edit(dir, (c) => {
+      c.client_docs = { mount: "hq", folder: "x" };
+    });
+    expect((await issuesOf(dir)).some((i) => i.path.startsWith("client_docs") && /mount/i.test(i.message))).toBe(true);
+  });
+
+  it("rejects folders that escape or are absolute", async () => {
+    for (const [i, bad] of ["../other", "/etc", "C:/x", "a/../../b", ""].entries()) {
+      const dir = await make(`ws-bad-${i}`);
+      await edit(dir, (c) => {
+        withMount(c);
+        c.client_docs = { mount: "hq", folder: bad, shared: [] };
+      });
+      expect((await issuesOf(dir)).some((i) => i.path.startsWith("client_docs")), `folder "${bad}"`).toBe(true);
+    }
+    const dir = await make("ws-allow-bad");
+    await edit(dir, (c) => withMount(c, { allow_paths: ["../up"] }));
+    expect((await issuesOf(dir)).some((i) => i.path.startsWith("mounts"))).toBe(true);
+  });
+});

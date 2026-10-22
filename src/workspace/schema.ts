@@ -159,6 +159,14 @@ const WhatsApp = z
     }
   });
 
+/** A folder inside a mounted folder: relative, no "..", no drive letter. */
+const InnerPath = z
+  .string()
+  .min(1)
+  .max(300)
+  .refine((v) => !/^([a-zA-Z]:|[\\/])/.test(v), "must be relative to the mounted folder")
+  .refine((v) => !v.replaceAll("\\", "/").split("/").some((seg) => seg === ".."), "must not contain '..'");
+
 export const WorkspaceSchema = z
   .object({
     schema_version: z.literal(SCHEMA_VERSION),
@@ -215,7 +223,7 @@ export const WorkspaceSchema = z
     command_bridge: z.object({ whatsapp: WhatsApp.prefault({}) }).strict().prefault({}),
     /** Named, read-only folders outside the workspace a run may read as name:path (for example the owner's HQ repo). */
     mounts: z
-      .array(z.object({ name: z.string().regex(/^[a-z][a-z0-9_-]+$/, "at least two characters: lowercase letters, digits, dash or underscore"), path: z.string().min(1).max(500), trust: z.enum(["owner", "untrusted"]).default("untrusted") }).strict())
+      .array(z.object({ name: z.string().regex(/^[a-z][a-z0-9_-]+$/, "at least two characters: lowercase letters, digits, dash or underscore"), path: z.string().min(1).max(500), trust: z.enum(["owner", "untrusted"]).default("untrusted"), allow_paths: z.array(InnerPath).max(50).optional() }).strict())
       .default([])
       .superRefine((mounts, ctx) => {
         const seen = new Set<string>();
@@ -224,6 +232,15 @@ export const WorkspaceSchema = z
           seen.add(m.name);
         });
       }),
+    /**
+     * Which folder of a mount holds THIS client's documents (brand, ICP, offers, strategy), plus shared
+     * folders any client may use. When set, a run can read only those parts of that mount, so one client's
+     * run never sees another client's folder.
+     */
+    client_docs: z
+      .object({ mount: z.string().regex(/^[a-z][a-z0-9_-]+$/), folder: InnerPath, shared: z.array(InnerPath).max(50).default([]) })
+      .strict()
+      .optional(),
     /** Where skills (SKILL.md folders) are found besides the workspace and ~/.medjay. Nothing outside these is read. */
     skills: z
       .object({
@@ -252,6 +269,11 @@ export const WorkspaceSchema = z
       .prefault({}),
     pack: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    if (config.client_docs && !config.mounts.some((m) => m.name === config.client_docs?.mount)) {
+      ctx.addIssue({ code: "custom", path: ["client_docs", "mount"], message: `no mount named "${config.client_docs.mount}"; add it with mdj mount add` });
+    }
+  });
 
 export type WorkspaceConfig = z.infer<typeof WorkspaceSchema>;
