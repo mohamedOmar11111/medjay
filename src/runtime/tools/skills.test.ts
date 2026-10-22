@@ -80,3 +80,40 @@ describe("skill tools", () => {
     expect(r.error.message).toContain("gd-m09-email-lifecycle-planner");
   });
 });
+
+describe("skill_load and the client's files", () => {
+  async function withResolver(bodyText: string) {
+    const dir2 = join(root, "skills2");
+    await mkdir(join(dir2, "x"), { recursive: true });
+    await writeFile(join(dir2, "x", "SKILL.md"), `---\nname: needs-files\ndescription: Needs client files.\n---\n${bodyText}\n`);
+    const discovery = await discoverSkills([{ path: dir2, label: "hq", trust: "owned" }]);
+    const asked: string[][] = [];
+    const policy = await loadPolicy(dir);
+    const registry = new ToolRegistry({ policy, ledger: new Ledger(join(dir, ".medjay", "audit-log.jsonl")) });
+    for (const tool of skillTools(discovery, {
+      clientFiles: async (names) => {
+        asked.push(names);
+        return names.map((name) => ({ name, found: name === "icp.md" ? "hq:01_Active_Clients/etlaala/icp.md" : null, via: name === "icp.md" ? ("client_folder" as const) : null, related: [] }));
+      },
+    })) registry.register(tool);
+    const scope = await RunScope.create({ workspaceDir: dir, workspaceId: "ws", dropzoneDir: join(dir, "data", "imports") });
+    const out = (await registry.invoke({ name: "skill_load", input: { name: "needs-files" } }, { runId: "r", step: 1, scope })) as { ok: true; output: { client_files?: { name: string; found: string | null }[]; client_files_note?: string } };
+    return { out, asked };
+  }
+
+  it("adds where each file the skill names can be read, only for the names it mentions", async () => {
+    const { out, asked } = await withResolver("Load first: the client's icp.md and STRATEGY.md if present.");
+    expect(asked).toEqual([["icp.md", "STRATEGY.md"]]);
+    expect(out.output.client_files).toEqual([
+      { name: "icp.md", found: "hq:01_Active_Clients/etlaala/icp.md", via: "client_folder", related: [] },
+      { name: "STRATEGY.md", found: null, via: null, related: [] },
+    ]);
+    expect(out.output.client_files_note).toMatch(/missing|not found/i);
+  });
+
+  it("adds nothing when the skill names no client file", async () => {
+    const { out, asked } = await withResolver("Just write the thing.");
+    expect(asked).toEqual([]);
+    expect(out.output.client_files).toBeUndefined();
+  });
+});

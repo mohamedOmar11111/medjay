@@ -3,6 +3,7 @@
 // text reaches the model, and it arrives marked trusted only when the skill is the owner's own.
 import { z } from "zod";
 import { loadSkillBody, type Discovery, type SkillEntry } from "../../skills/discover.js";
+import type { ClientFile } from "../client-files.js";
 import { defineTool, type ToolDef } from "../registry.js";
 
 const MAX_MATCHES = 8;
@@ -29,7 +30,15 @@ const closest = (name: string, skills: SkillEntry[]): string[] => {
     .map((s) => s.name);
 };
 
-export function skillTools(discovery: Discovery): ToolDef[] {
+export interface SkillToolOptions {
+  /** Where each client document the skill names (brand.md, icp.md...) can be read in this workspace. */
+  clientFiles?: (names: string[]) => Promise<ClientFile[]>;
+}
+
+const CLIENT_FILE_MENTION = /\b(brand|icp|offers|strategy)\.md\b/gi;
+const CANONICAL: Record<string, string> = { "brand.md": "brand.md", "icp.md": "icp.md", "offers.md": "offers.md", "strategy.md": "STRATEGY.md" };
+
+export function skillTools(discovery: Discovery, options: SkillToolOptions = {}): ToolDef[] {
   const { skills } = discovery;
 
   const search = defineTool({
@@ -63,6 +72,8 @@ export function skillTools(discovery: Discovery): ToolDef[] {
         throw new Error(`no skill named "${name}"${near.length > 0 ? `; did you mean: ${near.join(", ")}` : "; use skill_search to find one"}`);
       }
       const loaded = await loadSkillBody(skill);
+      const mentioned = [...new Set([...loaded.body.matchAll(CLIENT_FILE_MENTION)].map((m) => CANONICAL[m[0].toLowerCase()] as string))];
+      const clientFiles = options.clientFiles && mentioned.length > 0 ? await options.clientFiles(mentioned) : undefined;
       return {
         name: skill.name,
         source: skill.root,
@@ -71,6 +82,7 @@ export function skillTools(discovery: Discovery): ToolDef[] {
         dictionary: loaded.dictionary,
         tools: { mapped: skill.translation.mapped, unavailable: skill.translation.unavailable.map((u) => u.from), stripped: skill.translation.stripped },
         body: loaded.body,
+        ...(clientFiles ? { client_files: clientFiles, client_files_note: "Read these with read_file at the path shown. A file marked not found does not exist for this client: say it is missing and carry on without it; do not invent its contents." } : {}),
       };
     },
     // the trust label follows the skill, so the context builder spotlights another author's text

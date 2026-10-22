@@ -17,6 +17,7 @@ import { ToolRegistry } from "../registry.js";
 import { RunScope } from "../scope.js";
 import { growthTools, type GrowthPort } from "../tools/growth.js";
 import { skillTools } from "../tools/skills.js";
+import { resolveClientFiles } from "../client-files.js";
 import { createBuiltinTools } from "../tools/index.js";
 import { createAiSdkDriver } from "./driver.js";
 import type { RunDeps } from "./run.js";
@@ -65,8 +66,6 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
   }
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
   const home = options.home ?? homedir();
-  const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home }));
-  if (discovery.skills.length > 0) for (const tool of skillTools(discovery)) registry.register(tool);
   const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") || p.startsWith("~\\") ? join(home, p.slice(2)) : p);
   const mounts = config.mounts.map((m) => {
     // the mount that holds this client's documents is limited to that client's folder and the shared ones
@@ -74,6 +73,10 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
     return { name: m.name, path: resolve(expand(m.path)), trust: m.trust, allow: [...(m.allow_paths ?? []), ...mapped] };
   });
   const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id, mounts });
+  const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home }));
+  if (discovery.skills.length > 0) {
+    for (const tool of skillTools(discovery, { clientFiles: (names) => resolveClientFiles(scope, config.client_docs, names) })) registry.register(tool);
+  }
   const store = Store.open(join(dir, STORE_PATH));
 
   let driver = options.driver;

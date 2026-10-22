@@ -118,3 +118,26 @@ describe("openRun with a client folder in a mount", () => {
     opened.close();
   });
 });
+
+describe("openRun gives skills the client's files", () => {
+  it("skill_load reports where icp.md, brand.md and offers.md can be read for this client", async () => {
+    const hq = join(root, "hq3");
+    await mkdir(join(hq, "01_Active_Clients", "etlaala"), { recursive: true });
+    await writeFile(join(hq, "01_Active_Clients", "etlaala", "icp.md"), "icp", "utf8");
+    await mkdir(join(dir, "skills", "planner"), { recursive: true });
+    await writeFile(join(dir, "skills", "planner", "SKILL.md"), "---\nname: planner\ndescription: Plans email.\n---\nLoad first: brand.md, icp.md, offers.md and STRATEGY.md.\n");
+    const file = join(dir, "workspace.yaml");
+    const config = parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    config.mounts = [{ name: "hq", path: hq, trust: "owner" }];
+    config.client_docs = { mount: "hq", folder: "01_Active_Clients/etlaala", shared: [] };
+    await writeFile(file, stringify(config));
+    const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, home: join(root, "no-home") });
+    const r = (await opened.deps.registry.invoke({ name: "skill_load", input: { name: "planner" } }, { runId: "r", step: 1, scope: opened.deps.scope })) as { ok: true; output: { client_files: { name: string; found: string | null; via: string | null }[] } };
+    const by = Object.fromEntries(r.output.client_files.map((f) => [f.name, f]));
+    expect(by["icp.md"]).toMatchObject({ found: "hq:01_Active_Clients/etlaala/icp.md", via: "client_folder" });
+    expect(by["brand.md"]).toMatchObject({ found: "context/brand-voice.md", via: "native" });
+    expect(by["offers.md"]).toMatchObject({ found: "context/offer-matrix.md", via: "native" });
+    expect(by["STRATEGY.md"]).toMatchObject({ found: null });
+    opened.close();
+  });
+});
