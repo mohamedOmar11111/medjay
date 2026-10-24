@@ -5,7 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { parseDocument } from "yaml";
-import { CredentialResolver } from "../models/credentials.js";
+import { CredentialResolver, defaultRef } from "../models/credentials.js";
 import { resolveSlot, SLOT_NAMES } from "../models/slots.js";
 import { loadWorkspace } from "../workspace/load.js";
 import { guarded, workspaceDirOrThrow } from "./util.js";
@@ -29,7 +29,34 @@ export interface UseProviderResult {
   note: string;
 }
 
+/** Order tried when a workspace's own provider has no key: the first provider with a stored key wins. */
+const AUTO_ORDER: readonly CloudProvider[] = ["anthropic", "openai", "google"];
+
+/** "auto": keep the workspace as it is if a model it uses has a key; else move it to the first provider that has one. */
+async function useAuto(options: UseProviderOptions): Promise<UseProviderResult> {
+  const resolver = options.resolver ?? new CredentialResolver();
+  const { config } = await loadWorkspace(options.dir);
+  for (const target of SLOT_NAMES.flatMap((slot) => resolveSlot(config.models, slot))) {
+    if (target.provider === "ollama") continue;
+    const found = await resolver.resolve({ keychainRef: target.keychainRef, envFallback: target.envFallback });
+    if (found.source !== "none") return { changed: false, note: `the workspace already has a working key for ${target.provider}; left as it was` };
+  }
+  const skipped: string[] = [];
+  for (const candidate of AUTO_ORDER) {
+    const found = await resolver.resolve(defaultRef(candidate));
+    if (found.source === "none") continue;
+    if (DEFAULT_MODELS[candidate] === undefined) {
+      skipped.push(candidate);
+      continue;
+    }
+    return useProvider({ ...options, provider: candidate, onlyIfNoKey: false });
+  }
+  if (skipped.length > 0) return { changed: false, note: `a ${skipped.join(", ")} key is stored but there is no built-in default model for it: run \`mdj models use ${skipped[0]} --model <model-id>\`` };
+  return { changed: false, note: "no AI model key is stored yet: type /connect (or run mdj auth set <provider>)" };
+}
+
 export async function useProvider(options: UseProviderOptions): Promise<UseProviderResult> {
+  if (options.provider === "auto") return useAuto(options);
   const provider = options.provider.replaceAll("-", "_");
   if (!(CLOUD_PROVIDERS as readonly string[]).includes(provider)) throw new Error(`provider must be one of ${CLOUD_PROVIDERS.join(", ")}`);
   const cloud = provider as CloudProvider;
@@ -70,7 +97,7 @@ export async function useProvider(options: UseProviderOptions): Promise<UseProvi
 export function registerModelsUse(models: Command): void {
   models
     .command("use <provider>")
-    .description("point all model slots at one provider: anthropic, openai or google (google needs --model)")
+    .description("point all model slots at one provider: anthropic, openai or google (google needs --model); `auto` picks the provider whose key is stored")
     .option("--model <id>", "the model to use (default: a known-good one for anthropic and openai)")
     .option("--only-if-no-key", "change nothing if the workspace already has a working key for a model it uses")
     .option("--workspace <dir>", "workspace folder")

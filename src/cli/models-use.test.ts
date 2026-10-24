@@ -82,3 +82,33 @@ describe("mdj models use", () => {
     });
   });
 });
+
+describe("mdj models use auto (what setup runs: pick the provider whose key is already stored)", () => {
+  it("moves a new workspace to the provider that has a key when its own provider has none", async () => {
+    const result = await useProvider({ dir, provider: "auto", resolver: resolverWith("openai") });
+    expect(result.changed).toBe(true);
+    expect((await slots())[0]).toBe("openai/gpt-5.4-mini");
+  });
+  it("leaves the workspace alone when the model it uses already has a key, even if other keys exist", async () => {
+    const result = await useProvider({ dir, provider: "auto", resolver: resolverWith("anthropic", "openai") });
+    expect(result.changed).toBe(false);
+    expect((await slots())[0]).toBe("anthropic/claude-sonnet-5-5");
+  });
+  it("changes nothing, and says what to do, when no key is stored yet", async () => {
+    const result = await useProvider({ dir, provider: "auto", resolver: resolverWith() });
+    expect(result.changed).toBe(false);
+    expect(result.note).toMatch(/\/connect/);
+  });
+  it("skips a provider it has no default model for, and names it", async () => {
+    const result = await useProvider({ dir, provider: "auto", resolver: resolverWith("google") });
+    expect(result.changed).toBe(false);
+    expect(result.note).toMatch(/google/);
+    expect(result.note).toMatch(/--model/);
+  });
+  it("prefers anthropic, then openai, when several keys exist and the workspace's own has none", async () => {
+    await useProvider({ dir, provider: "openai", resolver: resolverWith() }); // now on openai, but only google and anthropic keys exist
+    const result = await useProvider({ dir, provider: "auto", resolver: resolverWith("anthropic", "google") });
+    expect(result.changed).toBe(true);
+    expect((await slots())[0]).toBe("anthropic/claude-sonnet-5-5");
+  });
+});

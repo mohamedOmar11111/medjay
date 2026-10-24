@@ -24,7 +24,7 @@ export const COMMANDS: CommandSpec[] = [
   { name: "skills", usage: "/skills [show <name>]", summary: "list the skills Medjay can find, or show one (where it came from, its tools)" },
   { name: "skill", usage: "/skill <name> | off", summary: "pin a skill: your next questions use it. /skill alone shows the pin" },
   { name: "drafts", usage: "/drafts", summary: "list saved drafts: version, copy check, last change" },
-  { name: "connect", usage: "/connect [anthropic|google|openai|openai_compatible]", summary: "connect an AI model key (typed hidden, stored in your system keychain)" },
+  { name: "connect", usage: "/connect <anthropic|openai|google|openai_compatible>", summary: "connect an AI model key (typed hidden, stored in your system keychain)" },
   { name: "expand", usage: "/expand <n>", summary: "show the details behind step card n" },
   { name: "clear", usage: "/clear", summary: "clear the feed" },
   { name: "quit", usage: "/quit", summary: "leave (also Ctrl+C)" },
@@ -159,11 +159,11 @@ export function pinnedSkillPrompt(name: string | null, text: string): string {
 ${text}`;
 }
 
-export const CONNECT_PROVIDERS = ["anthropic", "google", "openai", "openai_compatible"] as const;
+export const CONNECT_PROVIDERS = ["anthropic", "openai", "google", "openai_compatible"] as const;
 
 function connect(args: string[]): Resolution {
-  const provider = args[0] ?? "anthropic";
-  if (args.length > 1 || !(CONNECT_PROVIDERS as readonly string[]).includes(provider)) return fail(`usage: /connect [${CONNECT_PROVIDERS.join("|")}] (type the key at the hidden prompt, not here)`);
+  const provider = args[0];
+  if (provider === undefined || args.length > 1 || !(CONNECT_PROVIDERS as readonly string[]).includes(provider)) return fail(`usage: /connect <${CONNECT_PROVIDERS.join("|")}> (type the key at the hidden prompt, not here)`);
   return { kind: "local", action: "connect", provider };
 }
 

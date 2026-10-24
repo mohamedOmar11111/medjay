@@ -266,7 +266,7 @@ describe("/connect", () => {
 
   it("does not test a key that could not be stored, and Esc cancels without sending anything", async () => {
     const t = mount();
-    await t.send("/connect");
+    await t.send("/connect anthropic");
     await t.type(KEY);
     t.stdin.write("\r");
     await wait();
@@ -372,13 +372,17 @@ describe("first run", () => {
     expect(t.calls[0]!.argv).toEqual(expect.arrayContaining(["--currency", "SAR", "--business-type", "high_ticket_hybrid"]));
     t.calls[0]!.finish(0);
     await wait(80);
+    // use the provider whose key is already stored (a new workspace starts on Anthropic)
+    expect(t.calls[1]!.argv).toEqual(["models", "use", "auto", "--workspace", expect.stringContaining("etlaala-ksa")]);
+    t.calls[1]!.finish(0);
+    await wait(80);
     expect(t.frame()).toContain("Your workspace is ready.");
     expect(t.frame()).toContain("data");
     expect(t.frame()).toContain("/connect");
     expect(onWorkspace).toHaveBeenCalledWith(expect.stringContaining("etlaala-ksa"));
     expect(t.load).toHaveBeenCalledWith(expect.stringContaining("etlaala-ksa"));
     await t.send("how are my ads doing?");
-    expect(t.calls[1]!.argv[0]).toBe("scout");
+    expect(t.calls[2]!.argv[0]).toBe("scout");
     t.unmount();
   });
 

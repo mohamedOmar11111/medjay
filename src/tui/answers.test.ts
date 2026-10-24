@@ -141,7 +141,8 @@ describe("help, language, errors", () => {
     expect(a.next.length).toBe(6);
   });
   it("explains the missing model in plain words in both languages", () => {
-    expect(noModelAnswer("en").body[0]).toContain("mdj auth set anthropic");
+    const hint = noModelAnswer("en").body[0]!;
+    for (const provider of ["/connect anthropic", "/connect openai", "/connect google"]) expect(hint).toContain(provider);
     expect(noModelAnswer("ar").headline).toMatch(/[؀-ۿ]/);
   });
   it("switches language and wraps errors", () => {

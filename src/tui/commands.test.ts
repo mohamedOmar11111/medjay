@@ -70,9 +70,11 @@ describe("resolveInput", () => {
 });
 
 describe("/connect", () => {
-  it("resolves to a local action with a known provider, defaulting to anthropic", () => {
+  it("resolves to a local action with a known provider, and asks which one when none is given", () => {
     expect(resolveInput(parseInput("/connect openai"), null)).toEqual({ kind: "local", action: "connect", provider: "openai" });
-    expect(resolveInput(parseInput("/connect"), null)).toEqual({ kind: "local", action: "connect", provider: "anthropic" });
+    const none = resolveInput(parseInput("/connect"), null);
+    expect(none).toMatchObject({ kind: "error" });
+    expect((none as { message: string }).message).toMatch(/anthropic.*openai.*google/);
   });
   it("refuses anything that is not a provider name, so a key typed here is never treated as a command", () => {
     expect(resolveInput(parseInput("/connect sk-ant-abc"), null)).toMatchObject({ kind: "error" });

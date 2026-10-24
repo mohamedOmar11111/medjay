@@ -99,6 +99,6 @@ export function stepOnboarding(state: OnboardState, raw: string, baseDir: string
 export const onboardingDone = (dir: string, lang: Language): string =>
   pick(lang)(
     `Your workspace is ready.\nNext: export your reports (Meta, Google, website analytics, CRM) into\n  ${join(dir, "data", "imports")}\nthen ask me "How are my ads doing?"
-To have me answer in my own words, type /connect and paste your AI model key (it is hidden and stays in your system keychain).`,
-    `مساحة عملك جاهزة.\nالخطوة الجاية: صدّر تقاريرك (Meta وGoogle وتحليلات الموقع والـ CRM) إلى\n  ${join(dir, "data", "imports")}\nثم اسألني "كيف حال الإعلانات؟"\nعشان أجاوبك بكلامي، اكتب /connect والصق مفتاح نموذج الذكاء الاصطناعي (يبقى مخفياً ومحفوظاً في سلسلة مفاتيح نظامك).`,
+To have me answer in my own words, connect your own AI model key: type /connect anthropic, /connect openai or /connect google, then paste the key (it is hidden and stays in your system keychain).`,
+    `مساحة عملك جاهزة.\nالخطوة الجاية: صدّر تقاريرك (Meta وGoogle وتحليلات الموقع والـ CRM) إلى\n  ${join(dir, "data", "imports")}\nثم اسألني "كيف حال الإعلانات؟"\nعشان أجاوبك بكلامي، اربط مفتاح نموذجك: اكتب /connect anthropic أو /connect openai أو /connect google ثم الصق المفتاح (يبقى مخفياً ومحفوظاً في سلسلة مفاتيح نظامك).`,
   );

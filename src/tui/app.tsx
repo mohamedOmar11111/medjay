@@ -270,11 +270,18 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         onboardRef.current = null;
         setWs(dir);
         onWorkspaceRef.current?.(dir);
-        const [head = "", ...rest] = onboardingDone(dir, lang).split("\n");
-        const next = helpAnswer(lang, false).next.filter((s) => s.intent === "performance" || s.intent === "data");
-        suggestions.current = next;
-        add("answer", renderAnswer({ headline: head, body: rest, next }, lang));
-        void refresh(dir);
+        // A new workspace starts on Anthropic. If the person already has a key for another provider (OpenAI,
+        // Google) and none for Anthropic, use that one. If nothing is stored yet, nothing changes.
+        setBusy(pick(lang)("choosing your AI model", "أختار نموذج الذكاء الاصطناعي"));
+        void tracked(["models", "use", "auto", "--workspace", dir], () => undefined).done.then(() => {
+          running.current = null;
+          setBusy(null);
+          const [head = "", ...rest] = onboardingDone(dir, lang).split("\n");
+          const next = helpAnswer(lang, false).next.filter((s) => s.intent === "performance" || s.intent === "data");
+          suggestions.current = next;
+          add("answer", renderAnswer({ headline: head, body: rest, next }, lang));
+          void refresh(dir);
+        });
       });
     },
     [add, baseFolder, refresh, tracked],
