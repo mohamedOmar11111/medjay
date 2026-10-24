@@ -209,9 +209,13 @@ describe("/connect", () => {
     expect(t.calls[0]!.stdin).toBe(KEY);
     t.calls[0]!.finish(0);
     await wait(60);
-    expect(t.calls[1]!.argv).toEqual(["run", "--workspace", "/work/etl", "--", "Reply with the single word OK."]);
-    t.calls[1]!.emit("OK\n");
+    // the workspace starts on Anthropic: switch it to this provider, but only if nothing it uses has a key
+    expect(t.calls[1]!.argv).toEqual(["models", "use", "openai", "--only-if-no-key", "--workspace", "/work/etl"]);
     t.calls[1]!.finish(0);
+    await wait(60);
+    expect(t.calls[2]!.argv).toEqual(["run", "--workspace", "/work/etl", "--", "Reply with the single word OK."]);
+    t.calls[2]!.emit("OK\n");
+    t.calls[2]!.finish(0);
     await wait(60);
     expect(t.frame()).toContain("Connected: openai works.");
     expect(t.frame()).not.toContain(KEY);
@@ -227,10 +231,36 @@ describe("/connect", () => {
     await wait();
     t.calls[0]!.finish(0);
     await wait(60);
-    t.calls[1]!.emit("auth: all model targets failed: openai/gpt-5.4-mini (auth: Invalid API key)\n");
-    t.calls[1]!.finish(1);
+    t.calls[1]!.finish(0); // models use
+    await wait(60);
+    t.calls[2]!.emit("auth: all model targets failed: openai/gpt-5.4-mini (auth: Invalid API key)\n");
+    t.calls[2]!.finish(1);
     await wait(60);
     expect(t.frame()).toContain("openai rejected the saved key");
+    t.unmount();
+  });
+
+  it("still tests the key when switching the workspace's model fails, and skips the switch for a custom endpoint", async () => {
+    const t = mount();
+    await t.send("/connect google");
+    await t.type(KEY);
+    t.stdin.write("\r");
+    await wait();
+    t.calls[0]!.finish(0);
+    await wait(60);
+    expect(t.calls[1]!.argv.slice(0, 3)).toEqual(["models", "use", "google"]);
+    t.calls[1]!.finish(1);
+    await wait(60);
+    expect(t.calls[2]!.argv.slice(0, 2)).toEqual(["run", "--workspace"]);
+    t.calls[2]!.finish(0);
+    await wait(60);
+    await t.send("/connect openai_compatible");
+    await t.type(KEY);
+    t.stdin.write("\r");
+    await wait();
+    t.calls[3]!.finish(0);
+    await wait(60);
+    expect(t.calls[4]!.argv.slice(0, 2)).toEqual(["run", "--workspace"]);
     t.unmount();
   });
 

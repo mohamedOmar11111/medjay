@@ -21,7 +21,7 @@ export interface InitOptions {
 }
 
 const DEFAULT_MODELS: Record<SlotName, string> = {
-  fast: "ollama/qwen2.5",
+  fast: "anthropic/claude-sonnet-5-5", // a local model is opt-in (--fast ollama/<model>), not a default a newcomer must have
   reasoning: "anthropic/claude-sonnet-5-5",
   creative: "anthropic/claude-sonnet-5-5",
 };

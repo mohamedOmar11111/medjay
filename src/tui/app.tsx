@@ -34,6 +34,7 @@ export interface AppProps {
 
 const SIDEBAR_WIDTH = 30;
 const MIN_COLS_FOR_SIDEBAR = 80;
+const SWITCHABLE = ["anthropic", "openai", "google"];
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const THINKS: Routed["intent"][] = ["performance", "waste", "scale", "trust"];
 const PROBE_TASK = "Reply with the single word OK.";
@@ -301,14 +302,20 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
           setBusy(null);
           return void add("info", pick(lang)("Key stored. Once a workspace is set up, ask me something to test it.", "انحفظ المفتاح. بعد ما تجهز مساحة العمل اسألني أي شي لتجربته."));
         }
-        setBusy(pick(lang)("testing the key", "أجرّب المفتاح"));
-        let out = "";
-        void tracked(["run", "--workspace", dir, "--", PROBE_TASK], (chunk) => void (out += chunk)).done.then(({ code: probe }) => {
-          running.current = null;
-          setBusy(null);
-          const failure = probe !== 0 ? classifyModelFailure(out) : null;
-          if (failure) return void add("answer", renderAnswer(modelErrorAnswer(failure, lang), lang));
-          add("info", pick(lang)(`Connected: ${provider} works.`, `تم الاتصال: ${provider} يشتغل.`));
+        // A workspace starts on Anthropic. If this key is for another provider and nothing the workspace
+        // uses has a key yet, point it at the provider just connected. A failure here does not stop the test.
+        const switched = SWITCHABLE.includes(provider) ? tracked(["models", "use", provider, "--only-if-no-key", "--workspace", dir], () => undefined).done : Promise.resolve({ code: 0 });
+        void switched.then(() => {
+          setBusy(pick(lang)("testing the key", "أجرّب المفتاح"));
+          let out = "";
+          void tracked(["run", "--workspace", dir, "--", PROBE_TASK], (chunk) => void (out += chunk)).done.then(({ code: probe }) => {
+            running.current = null;
+            setBusy(null);
+            const failure = probe !== 0 ? classifyModelFailure(out) : null;
+            if (failure) return void add("answer", renderAnswer(modelErrorAnswer(failure, lang), lang));
+            add("info", pick(lang)(`Connected: ${provider} works.`, `تم الاتصال: ${provider} يشتغل.`));
+          });
+
         });
       });
     },

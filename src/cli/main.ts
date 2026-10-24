@@ -17,6 +17,7 @@ import { registerAnalysisCommands } from "./analysis-commands.js";
 import { registerBridgeCommands } from "./bridge-commands.js";
 import { registerDemoCommands } from "./demo-commands.js";
 import { registerMediaCommands } from "./media-commands.js";
+import { registerModelsUse } from "./models-use.js";
 import { registerPlanCommands } from "./plan-commands.js";
 import { registerShieldCommands } from "./shield-commands.js";
 import { registerShadowCommands } from "./shadow-commands.js";
@@ -204,6 +205,7 @@ export function buildProgram(): Command {
     );
 
   const models = program.command("models").description("model slots and usage");
+  registerModelsUse(models);
   models
     .command("cost")
     .description("token usage by slot, provider and model, from the machine-state store")

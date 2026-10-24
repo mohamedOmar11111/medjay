@@ -72,9 +72,10 @@ describe("initWorkspace (schema 1.0.0)", () => {
     expect(first.payload).toMatchObject({ medjay_version: VERSION, schema_version: SCHEMA_VERSION });
   });
 
-  it("defaults the reasoning and creative slots to Sonnet and the fast slot to a local model", async () => {
+  it("defaults every slot to the same API model, so a new workspace needs one key and no local server", async () => {
     const { config } = await loadWorkspace(await make());
-    expect(config.models.slots.fast.primary).toMatchObject({ provider: "ollama", model: "qwen2.5" });
+    expect(config.models.slots.fast.primary).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5" });
+    expect(config.models.slots.reasoning.primary.model).toBe("claude-sonnet-5-5");
     expect(config.models.slots.creative.primary.model).toBe("claude-sonnet-5-5");
   });
 

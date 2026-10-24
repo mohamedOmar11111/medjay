@@ -61,7 +61,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "medjay-doctor-"));
   ws = join(root, "ws");
   catalogFile = join(root, "catalog.json");
-  await initWorkspace({ dir: ws, id: "ws", businessType: "high_ticket_hybrid" });
+  await initWorkspace({ dir: ws, id: "ws", businessType: "high_ticket_hybrid", models: { fast: "ollama/qwen2.5" } }); // these tests exercise the local-model checks
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
