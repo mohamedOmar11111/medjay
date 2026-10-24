@@ -26,12 +26,12 @@ const ALLOWED: Record<string, string[]> = {
   store: ["shared"],
   style: ["shared"],
   plan: ["shield", "store", "audit", "models", "ingest", "analysis", "shared"],
-  runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "skills", "shared"],
+  runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "skills", "drafts", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   skills: ["shared"],
   drafts: ["style", "workspace", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
-  cli: ["tui", "skills", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  cli: ["tui", "skills", "drafts", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
   root: ["cli", "tui", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 

@@ -15,6 +15,9 @@ import type { Pack } from "../../style/slop.js";
 import { loadWorkspace } from "../../workspace/load.js";
 import { ToolRegistry } from "../registry.js";
 import { RunScope } from "../scope.js";
+import { createDraftChecker } from "../../drafts/checker.js";
+import { DraftStore } from "../../drafts/store.js";
+import { draftTools } from "../tools/drafts.js";
 import { growthTools, type GrowthPort } from "../tools/growth.js";
 import { skillTools } from "../tools/skills.js";
 import { resolveClientFiles } from "../client-files.js";
@@ -64,6 +67,13 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
   for (const tool of createBuiltinTools({ policy, style: { packs, extraBanned, allow: config.style.slop.allow, claims: context.claims, failOn: config.style.slop.fail_on } })) {
     registry.register(tool);
   }
+  const drafts = new DraftStore(dir, {
+    checker: await createDraftChecker(dir),
+    audit: async ({ event, author, ...payload }) => {
+      await ledger.append({ actor: String(author), event: String(event), payload });
+    },
+  });
+  for (const tool of draftTools(drafts)) registry.register(tool);
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
   const home = options.home ?? homedir();
   const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") || p.startsWith("~\\") ? join(home, p.slice(2)) : p);
