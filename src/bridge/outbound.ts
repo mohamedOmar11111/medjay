@@ -53,6 +53,8 @@ function describe(a: CompiledAction): string {
       return `Patch ${a.artifact} (reviewed and applied by a person)`;
     case "register_experiment":
       return `Register experiment ${a.experiment_id}: ${a.hypothesis}`;
+    case "publish_post":
+      return `WordPress post "${a.title}" on ${a.site} as ${a.post_status} (draft ${a.draft.workflow}/${a.draft.slug} v${a.draft.version})`;
   }
 }
 

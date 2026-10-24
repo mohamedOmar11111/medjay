@@ -21,6 +21,8 @@ export function proposalOf(action: CompiledAction): ProposalInput {
       return { type: "remove_negative_keywords", target: action.target, terms: action.terms, executor: action.executor };
     case "code_patch":
       return { type: "code_patch", artifact: action.artifact };
+    case "publish_post":
+      return { type: "publish_post", site: action.site, draft: action.draft, title: action.title, post_status: action.post_status, ...(action.wp_slug ? { wp_slug: action.wp_slug } : {}), executor: action.executor };
     case "register_experiment":
       return { type: "register_experiment", experiment_id: action.experiment_id, ...(action.tactic_id ? { tactic_id: action.tactic_id } : {}), hypothesis: action.hypothesis, metric: action.metric };
   }

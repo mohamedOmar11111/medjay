@@ -26,6 +26,12 @@ function renderAction(action: CompiledAction): string[] {
       return [`${action.id}  code_patch  ${action.artifact}   (exported for review, never deployed automatically)`];
     case "register_experiment":
       return [`${action.id}  register_experiment  ${action.experiment_id}`, `    hypothesis: ${action.hypothesis}`, `    metric: ${action.metric}`];
+    case "publish_post":
+      return [
+        `${action.id}  publish_post  wordpress:${action.site}   (exported as a request file; Medjay sends nothing)`,
+        `    + post "${action.title}" as ${action.post_status.toUpperCase()}${action.wp_slug ? `, slug ${action.wp_slug}` : ""}`,
+        `    from draft ${action.draft.workflow}/${action.draft.slug} v${action.draft.version}  sha256 ${action.draft.sha256}`,
+      ];
   }
 }
 

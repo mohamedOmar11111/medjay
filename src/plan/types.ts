@@ -37,6 +37,24 @@ export type Term = z.infer<typeof Term>;
 const budgetShape = { target: TargetSchema, from: Budget, to: Budget, currency: Currency, executor: Executor.default("export") };
 const statusShape = { target: TargetSchema, from: Status, to: Status, executor: Executor.default("export") };
 const negativesShape = { target: TargetSchema, terms: z.array(Term).min(1).max(500), executor: Executor.default("export") };
+const slugName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+/** A WordPress post made from one exact version of a draft: the version and its SHA-256 travel with the plan. */
+const publishShape = {
+  site: z.string().regex(/^[a-z][a-z0-9_-]{1,39}$/),
+  draft: z.object({ workflow: slugName, slug: slugName, version: z.number().int().min(1), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(),
+  title: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((v) => !/[\u0000-\u001f\u007f]/.test(v), "must not contain control characters"),
+  post_status: z.enum(["draft", "pending", "publish"]).default("draft"),
+  wp_slug: z
+    .string()
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .max(100)
+    .optional(),
+  executor: Executor.default("export"),
+};
 const patchShape = { artifact: z.string().regex(/^patches\/[A-Za-z0-9_.-]+\.diff$/, "must be patches/<name>.diff inside the plans folder") };
 const experimentShape = {
   experiment_id: z.string().regex(/^[A-Za-z0-9_-]+$/),
@@ -52,6 +70,7 @@ export const ProposalSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("remove_negative_keywords"), ...negativesShape }).strict(),
   z.object({ type: z.literal("code_patch"), ...patchShape }).strict(),
   z.object({ type: z.literal("register_experiment"), ...experimentShape }).strict(),
+  z.object({ type: z.literal("publish_post"), ...publishShape }).strict(),
 ]);
 export type ProposalInput = z.input<typeof ProposalSchema>;
 export type Proposal = z.output<typeof ProposalSchema>;
@@ -88,6 +107,7 @@ const CompiledActionSchema = z.discriminatedUnion("type", [
     executor: z.literal("record"),
     inverse: z.object({ type: z.literal("archive_experiment") }).strict(),
   }).strict(),
+  z.object({ type: z.literal("publish_post"), ...base, ...publishShape, inverse: z.object({ type: z.literal("unpublish_post") }).strict() }).strict(),
 ]);
 export type CompiledAction = z.infer<typeof CompiledActionSchema>;
 

@@ -114,12 +114,15 @@ function toAction(proposal: Proposal, index: number): CompiledAction {
       return { ...proposal, id, irreversible: false, executor: "patch", deploy: "never_automatic", inverse: { type: "revert_patch" } };
     case "register_experiment":
       return { ...proposal, id, irreversible: false, executor: "record", inverse: { type: "archive_experiment" } };
+    case "publish_post":
+      // a post that goes live can be seen before it is taken down, so it counts as irreversible
+      return { ...proposal, id, irreversible: proposal.post_status === "publish", inverse: { type: "unpublish_post" } };
   }
 }
 
 export function policyActions(actions: CompiledAction[]): PolicyAction[] {
   return actions.map((a) => {
-    const target = "target" in a ? { platform: a.target.platform, kind: a.target.kind, id: a.target.id } : { platform: "workspace", kind: a.type, id: a.id };
+    const target = "target" in a ? { platform: a.target.platform, kind: a.target.kind, id: a.target.id } : a.type === "publish_post" ? { platform: "wordpress", kind: "post", id: a.site } : { platform: "workspace", kind: a.type, id: a.id };
     const base: PolicyAction = { id: a.id, type: a.type, target, irreversible: a.irreversible };
     return a.type === "budget_change" ? { ...base, from: a.from, to: a.to, currency: a.currency, ...(a.restores ? { restores: true } : {}) } : base;
   });

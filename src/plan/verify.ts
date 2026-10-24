@@ -76,6 +76,8 @@ function verifyAction(action: CompiledAction, observations: Observation[]): Acti
       return { ...base, status: "manual", detail: "a patch is reviewed and deployed by a person; Medjay cannot observe it" };
     case "register_experiment":
       return { ...base, status: "manual", detail: "a record, not a platform change" };
+    case "publish_post":
+      return { ...base, status: "manual", detail: "the post is created in WordPress by a person; Medjay cannot observe it" };
   }
 }
 

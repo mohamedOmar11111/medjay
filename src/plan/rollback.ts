@@ -31,6 +31,8 @@ function inverseProposal(action: CompiledAction): ProposalInput | Skipped {
       return { action_id: action.id, reason: "a patch is never deployed by Medjay, so there is nothing to revert here; revert it in your repository" };
     case "register_experiment":
       return { action_id: action.id, reason: "an experiment record is not a platform change; archive it in the tactics log if needed" };
+    case "publish_post":
+      return { action_id: action.id, reason: "Medjay cannot take a post down; set it back to draft or delete it in WordPress" };
   }
 }
 

@@ -155,3 +155,49 @@ describe("canonicalJsonPretty", () => {
     expect(JSON.parse(text)).toEqual({ a: "x", b: [1, { a: 2, z: 1 }] });
   });
 });
+
+describe("compilePlan: publish_post (a draft bound to a version and a hash)", () => {
+  const HASH = "a".repeat(64);
+  const publish = (over: Record<string, unknown> = {}) => ({ type: "publish_post", site: "etlaala-trips", draft: { workflow: "posts", slug: "umrah-guide", version: 2, sha256: HASH }, title: "Umrah in Ramadan: a calm guide", ...over });
+  const compile = (proposals: unknown[]) => compilePlan({ workspace: "etlaala-ksa", origin: { job: "content", finding_ids: [] }, now: NOW, proposals: proposals as never }, { policy: policy() }).plan;
+
+  it("compiles to a reviewable action that keeps the draft version and hash, defaulting to a WordPress draft", () => {
+    const plan = compile([publish()]);
+    expect(plan.actions[0]).toMatchObject({
+      id: "a1",
+      type: "publish_post",
+      site: "etlaala-trips",
+      post_status: "draft",
+      executor: "export",
+      irreversible: false,
+      draft: { workflow: "posts", slug: "umrah-guide", version: 2, sha256: HASH },
+      inverse: { type: "unpublish_post" },
+    });
+    expect(verifyPlanHash(plan)).toBe(true);
+  });
+
+  it("marks a post that goes live as irreversible (it can be seen before it is taken down), so the two-step rule applies", () => {
+    const plan = compile([publish({ post_status: "publish" })]);
+    expect(plan.actions[0]).toMatchObject({ post_status: "publish", irreversible: true });
+    expect(plan.policy_result.two_step_required).toBe(true);
+  });
+
+  it("binds the plan hash to the draft: a different version or hash is a different plan", () => {
+    const a = compile([publish()]);
+    expect(compile([publish({ draft: { workflow: "posts", slug: "umrah-guide", version: 3, sha256: HASH } })]).plan_hash).not.toBe(a.plan_hash);
+    expect(compile([publish({ draft: { workflow: "posts", slug: "umrah-guide", version: 2, sha256: "b".repeat(64) } })]).plan_hash).not.toBe(a.plan_hash);
+  });
+
+  it("rejects a bad hash, an unknown status, a site name that is not a name, and fields it does not know", () => {
+    for (const bad of [{ draft: { workflow: "posts", slug: "x", version: 1, sha256: "nope" } }, { post_status: "private" }, { site: "My Site!" }, { title: "" }, { title: "line\nbreak" }, { wp_slug: "Not A Slug" }, { extra: 1 }]) {
+      expect(() => compile([publish(bad)]), JSON.stringify(bad)).toThrow(PlanInputError);
+    }
+  });
+
+  it("is judged by the policy as a wordpress post action and can sit beside ad changes in one plan", () => {
+    const plan = compile([publish(), { type: "add_negative_keywords", target: campaign("123", "Brand Search"), terms: [{ text: "free", match: "BROAD" }] }]);
+    expect(plan.actions.map((a) => a.type)).toEqual(["publish_post", "add_negative_keywords"]);
+    expect(plan.policy_result.status).toBe("pass");
+    expect(plan.preconditions.every((p) => p.entity.startsWith("google_ads:"))).toBe(true);
+  });
+});

@@ -162,6 +162,8 @@ function describe(action: CompiledAction): string {
       return `Review and apply the patch ${action.artifact} yourself (Medjay never deploys code).`;
     case "register_experiment":
       return `Experiment ${action.experiment_id} registered: ${action.hypothesis} (metric: ${action.metric}).`;
+    case "publish_post":
+      return `Create the WordPress post "${action.title}" on ${action.site} as ${action.post_status} from draft ${action.draft.workflow}/${action.draft.slug} v${action.draft.version} (sha256 ${action.draft.sha256.slice(0, 12)}).`;
   }
 }
 
