@@ -54,6 +54,8 @@ export const PolicySchema = z
           .strict()
           .optional(),
         max_new_campaign_daily_budget: z.number().positive().optional(),
+        /** Most WordPress posts one plan (plus any already published today) may publish. 0 blocks publishing. */
+        max_posts_per_day: z.number().int().min(0).max(100).default(5),
         /** A plan that raises a daily budget needs a passing simulation before it can be approved. */
         require_simulation_for_scale: z.boolean().default(true),
         /** A passing simulation has P50 above zero and at least this share of draws above zero. */

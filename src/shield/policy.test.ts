@@ -272,3 +272,33 @@ describe("checkPolicy: two-step approval", () => {
     expect(result.daily_delta).toEqual({ gross: 70, net: -30 });
   });
 });
+
+describe("checkPolicy: daily post cap", () => {
+  const post = (id: string): PolicyAction => ({ id, type: "publish_post", target: { platform: "wordpress", kind: "post", id: "site" }, irreversible: false });
+
+  it("defaults to 5 posts and accepts a cap of 0 to 100", () => {
+    expect(PolicySchema.parse({}).limits.max_posts_per_day).toBe(5);
+    expect(PolicySchema.safeParse({ limits: { max_posts_per_day: 0 } }).success).toBe(true);
+    expect(PolicySchema.safeParse({ limits: { max_posts_per_day: -1 } }).success).toBe(false);
+    expect(PolicySchema.safeParse({ limits: { max_posts_per_day: 2.5 } }).success).toBe(false);
+  });
+
+  it("passes a plan at the cap and blocks one just above it", () => {
+    const p = policy({ limits: { max_posts_per_day: 2 } });
+    expect(checkPolicy(p, { actions: [post("1"), post("2")] }).status).toBe("pass");
+    const over = checkPolicy(p, { actions: [post("1"), post("2"), post("3")] });
+    expect(over.status).toBe("fail");
+    expect(over.checks.find((c) => c.ok === false)).toMatchObject({ rule: "max_posts_per_day", limit: 2, actual: 3 });
+  });
+
+  it("adds posts already published today to the plan's posts", () => {
+    const p = policy({ limits: { max_posts_per_day: 3 } });
+    expect(checkPolicy(p, { actions: [post("1")] }, { postsToday: 2 }).status).toBe("pass");
+    expect(checkPolicy(p, { actions: [post("1"), post("2")] }, { postsToday: 2 }).status).toBe("fail");
+  });
+
+  it("adds no check to a plan without posts, and a cap of 0 blocks every post", () => {
+    expect(checkPolicy(policy(), { actions: [budget("1", 100, 110)] }).checks.some((c) => c.rule === "max_posts_per_day")).toBe(false);
+    expect(checkPolicy(policy({ limits: { max_posts_per_day: 0 } }), { actions: [post("1")] }).status).toBe("fail");
+  });
+});

@@ -24,6 +24,14 @@ const LABELS: Record<string, string> = {
 
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+/** First 8 hex characters of a SHA-256, or "" when the value is not one (nothing else is ever printed). */
+const shortSha = (v: unknown): string => (typeof v === "string" && /^[0-9a-f]{64}$/.test(v) ? v.slice(0, 8) : "");
+const sha = (v: unknown): string => (shortSha(v) ? ` · sha ${shortSha(v)}` : "");
+const copyCheck = (status: unknown, errors: number): string => {
+  if (status === "pass") return "PASS";
+  if (status === "fail") return `FAIL${errors > 0 ? ` (${plural(errors, "error")})` : ""}`;
+  return status === "not_checked" ? "not checked" : String(status ?? "?");
+};
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const shortDay = (iso: string) => {
   const [, m, d] = iso.split("-").map(Number);
@@ -92,18 +100,17 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       return { label, summary: `${plural(matches.length, "match", "matches")}: ${matches.slice(0, 3).map((m) => String(m.name)).join(", ")}` };
     }
     case "skill_load":
-      return { label, summary: `${String(out.name ?? "skill")} (${String(out.source ?? "?")}, ${out.trust === "owned" ? "yours" : "from another author"})` };
+      return { label, summary: `${String(out.name ?? "skill")} (${String(out.source ?? "?")}, ${out.trust === "owned" ? "yours" : "from another author"})${sha(out.sha256)}` };
     case "draft_save": {
       const check = rec(out.check);
-      const errors = num(check.errors);
-      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.version)} · copy check: ${String(check.status ?? "?")}${check.status === "fail" && errors > 0 ? ` (${plural(errors, "error")})` : ""}` };
+      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.version)}${sha(out.sha256)} · copy check: ${copyCheck(check.status, num(check.errors))}` };
     }
     case "draft_read":
-      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.version)}${out.intact === false ? " · changed outside Medjay" : ""}` };
+      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.version)}${out.intact === false ? " · changed outside Medjay" : sha(out.sha256)}` };
     case "draft_list":
       return { label, summary: plural(Array.isArray(out.drafts) ? out.drafts.length : 0, "draft") };
     case "draft_diff":
-      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.from)} to v${num(out.to)} · +${num(out.added)} -${num(out.removed)} lines` };
+      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.from)}${shortSha(out.from_sha256) ? ` (${shortSha(out.from_sha256)})` : ""} to v${num(out.to)}${shortSha(out.to_sha256) ? ` (${shortSha(out.to_sha256)})` : ""} · +${num(out.added)} -${num(out.removed)} lines` };
     default:
       return { label, summary: "done" };
   }

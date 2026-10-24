@@ -72,6 +72,10 @@ describe("draft tools", () => {
     const diff = (await registry.invoke({ name: "draft_diff", input: { workflow: "email", slug: "x", from: 1, to: 2 } }, run)) as Out<{ added: number; text: string }>;
     expect(diff).toMatchObject({ ok: true, output: { added: 1, removed: 1 } });
     expect((diff as { output: { text: string } }).output.text).toContain("+ three");
+    const hashes = (diff as { output: { from_sha256: string; to_sha256: string } }).output;
+    expect(hashes.from_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashes.to_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashes.from_sha256).not.toBe(hashes.to_sha256);
   });
 
   it("treats saved text as untrusted data when it is read back", async () => {

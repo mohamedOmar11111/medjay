@@ -83,6 +83,20 @@ describe("a WordPress post, from draft to export file", () => {
     expect(r.stderr).toMatch(/Medjay cannot take a post down/);
   });
 
+  it("refuses a plan that publishes more posts than the daily cap allows, and says which limit", async () => {
+    const file = join(dir, "shield.policy.yaml");
+    const original = await readFile(file, "utf8");
+    expect(original).toMatch(/max_posts_per_day: 5/);
+    await writeFile(file, original.replace("max_posts_per_day: 5", "max_posts_per_day: 0"), "utf8");
+    try {
+      const r = await mdj("plan", "new", "--from", await proposalFile("capped.json", { title: "A third title" }));
+      expect(r.code).toBe(1);
+      expect(r.stdout + r.stderr).toMatch(/max_posts_per_day/);
+    } finally {
+      await writeFile(file, original, "utf8");
+    }
+  });
+
   it("stops the export from validating once the draft has been changed", async () => {
     await writeFile(join(dir, "drafts", "posts", "umrah-guide", "v1.md"), "edited after the strike", "utf8");
     const r = await mdj("validate-export", "1");

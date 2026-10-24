@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMMANDS, parseInput, resolveInput } from "./commands.js";
+import { COMMANDS, parseInput, pinnedSkillPrompt, resolveInput } from "./commands.js";
 
 const WS = "/work/etl";
 
@@ -86,5 +86,52 @@ describe("/expand", () => {
     expect(resolveInput(parseInput("/expand"), null)).toMatchObject({ kind: "error" });
     expect(resolveInput(parseInput("/expand 0"), null)).toMatchObject({ kind: "error" });
     expect(resolveInput(parseInput("/expand a"), null)).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("/skills, /skill and /drafts", () => {
+  const go = (text: string, ws: string | null = WS) => resolveInput(parseInput(text), ws);
+
+  it("/skills lists, and /skills show <name> shows one, as fixed read commands", () => {
+    expect(go("/skills")).toEqual({ kind: "cli", argv: ["skills", "list", "--workspace", WS], label: "skills" });
+    expect(go("/skills show email-sequence")).toEqual({ kind: "cli", argv: ["skills", "show", "email-sequence", "--workspace", WS], label: "skills show" });
+    expect(go("/skills show")).toMatchObject({ kind: "error" });
+    expect(go("/skills link ../x")).toMatchObject({ kind: "error" });
+    expect(go("/skills show --workspace /etc")).toMatchObject({ kind: "error" });
+    expect(go("/skills", null)).toMatchObject({ kind: "error" });
+  });
+
+  it("/drafts lists drafts and takes no arguments", () => {
+    expect(go("/drafts")).toEqual({ kind: "cli", argv: ["draft", "list", "--workspace", WS], label: "drafts" });
+    expect(go("/drafts revert x")).toMatchObject({ kind: "error" });
+    expect(go("/drafts", null)).toMatchObject({ kind: "error" });
+  });
+
+  it("/skill pins, clears and shows, locally and without a workspace", () => {
+    expect(go("/skill email-sequence", null)).toEqual({ kind: "local", action: "skill", mode: "pin", name: "email-sequence" });
+    expect(go("/skill off", null)).toEqual({ kind: "local", action: "skill", mode: "clear" });
+    expect(go("/skill clear", null)).toEqual({ kind: "local", action: "skill", mode: "clear" });
+    expect(go("/skill", null)).toEqual({ kind: "local", action: "skill", mode: "show" });
+  });
+
+  it("/skill refuses names that are not plain skill names", () => {
+    for (const bad of ['"a b"', "-x", "../up", "a/b", "x;rm", `"${"a".repeat(121)}"`]) expect(go(`/skill ${bad}`, null)).toMatchObject({ kind: "error" });
+    expect(go("/skill a b", null)).toMatchObject({ kind: "error" });
+  });
+
+  it("lists the new commands in the help table", () => {
+    expect(COMMANDS.map((c) => c.name)).toEqual(expect.arrayContaining(["skills", "skill", "drafts"]));
+  });
+});
+
+describe("pinnedSkillPrompt", () => {
+  it("asks the agent to load the pinned skill first and keeps the person's words after it", () => {
+    const text = pinnedSkillPrompt("email-sequence", "write a Ramadan welcome email");
+    expect(text).toContain('"email-sequence"');
+    expect(text).toContain("skill_load");
+    expect(text.endsWith("write a Ramadan welcome email")).toBe(true);
+  });
+  it("returns the words unchanged when nothing is pinned", () => {
+    expect(pinnedSkillPrompt(null, "hello")).toBe("hello");
   });
 });

@@ -21,6 +21,9 @@ export const COMMANDS: CommandSpec[] = [
   { name: "plan", usage: "/plan [list | show <n>]", summary: "list plans or show one (approving is done in the terminal)" },
   { name: "ledger", usage: "/ledger", summary: "verify the tamper-evident audit ledger" },
   { name: "doctor", usage: "/doctor", summary: "pre-flight checks" },
+  { name: "skills", usage: "/skills [show <name>]", summary: "list the skills Medjay can find, or show one (where it came from, its tools)" },
+  { name: "skill", usage: "/skill <name> | off", summary: "pin a skill: your next questions use it. /skill alone shows the pin" },
+  { name: "drafts", usage: "/drafts", summary: "list saved drafts: version, copy check, last change" },
   { name: "connect", usage: "/connect [anthropic|google|openai|openai_compatible]", summary: "connect an AI model key (typed hidden, stored in your system keychain)" },
   { name: "expand", usage: "/expand <n>", summary: "show the details behind step card n" },
   { name: "clear", usage: "/clear", summary: "clear the feed" },
@@ -32,6 +35,8 @@ export type Resolution =
   | { kind: "local"; action: "help" | "status" | "clear" | "quit" }
   | { kind: "local"; action: "connect"; provider: string }
   | { kind: "local"; action: "expand"; n: number }
+  | { kind: "local"; action: "skill"; mode: "pin"; name: string }
+  | { kind: "local"; action: "skill"; mode: "clear" | "show" }
   | { kind: "cli"; argv: string[]; label: string }
   | { kind: "error"; message: string };
 
@@ -125,6 +130,35 @@ function expand(args: string[]): Resolution {
   return args.length === 1 && Number.isInteger(n) && n >= 1 ? { kind: "local", action: "expand", n } : fail("usage: /expand <card number>");
 }
 
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
+
+function skill(args: string[]): Resolution {
+  const [name, ...extra] = args;
+  if (name === undefined) return { kind: "local", action: "skill", mode: "show" };
+  if (extra.length > 0 || !SKILL_NAME.test(name)) return fail("usage: /skill <name> | off (a skill name is letters, digits, . _ - only; /skills lists them)");
+  if (name === "off" || name === "clear") return { kind: "local", action: "skill", mode: "clear" };
+  return { kind: "local", action: "skill", mode: "pin", name };
+}
+
+function skills(args: string[], ws: string): Resolution {
+  const [sub, name, ...extra] = args;
+  if (sub === undefined) return { kind: "cli", argv: ["skills", "list", "--workspace", ws], label: "skills" };
+  if (sub !== "show" || extra.length > 0 || name === undefined || !SKILL_NAME.test(name)) return fail("usage: /skills [show <name>] (linking and changing skills is done in a terminal: mdj skill link)");
+  return { kind: "cli", argv: ["skills", "show", name, "--workspace", ws], label: "skills show" };
+}
+
+function drafts(args: string[], ws: string): Resolution {
+  return args.length === 0 ? { kind: "cli", argv: ["draft", "list", "--workspace", ws], label: "drafts" } : fail("usage: /drafts (reverting a draft is done in a terminal: mdj draft revert)");
+}
+
+/** The agent's task with the pinned skill named first, so it loads that skill before it answers. */
+export function pinnedSkillPrompt(name: string | null, text: string): string {
+  if (name === null) return text;
+  return `Use the skill "${name}" for this request: load it with skill_load first and follow its method.
+
+${text}`;
+}
+
 export const CONNECT_PROVIDERS = ["anthropic", "google", "openai", "openai_compatible"] as const;
 
 function connect(args: string[]): Resolution {
@@ -153,6 +187,8 @@ export function resolveInput(parsed: Parsed, workspaceDir: string | null): Resol
       return connect(args);
     case "expand":
       return expand(args);
+    case "skill":
+      return skill(args);
   }
   if (!COMMANDS.some((c) => c.name === name)) return fail(`unknown command /${name}; /help lists them`);
   if (workspaceDir === null) return NEEDS_WORKSPACE;
@@ -164,6 +200,10 @@ export function resolveInput(parsed: Parsed, workspaceDir: string | null): Resol
       return simulate(args, workspaceDir);
     case "plan":
       return plan(args, workspaceDir);
+    case "skills":
+      return skills(args, workspaceDir);
+    case "drafts":
+      return drafts(args, workspaceDir);
     case "ledger":
       return { kind: "cli", argv: ["ledger", "verify", "--workspace", workspaceDir], label: "ledger" };
     default:

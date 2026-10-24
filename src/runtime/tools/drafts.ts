@@ -58,7 +58,11 @@ export function draftTools(store: DraftStore): ToolDef[] {
     description: "Show what changed between two versions of a draft (lines added and removed).",
     class: "read",
     input: z.object({ workflow: Name, slug: Name, from: z.number().int().min(1), to: z.number().int().min(1) }).strict(),
-    execute: async ({ workflow, slug, from, to }) => ({ workflow, slug, from, to, ...(await store.diff(workflow, slug, from, to)) }),
+    execute: async ({ workflow, slug, from, to }) => {
+      const changes = await store.diff(workflow, slug, from, to);
+      const [a, b] = [await store.read(workflow, slug, from), await store.read(workflow, slug, to)];
+      return { workflow, slug, from, to, from_sha256: a.meta.sha256, to_sha256: b.meta.sha256, ...changes };
+    },
   });
 
   return [diff, list, read, save] as unknown as ToolDef[];

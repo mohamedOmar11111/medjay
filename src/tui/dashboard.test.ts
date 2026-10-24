@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FIXTURE_NOW, setupIngest, type IngestHarness } from "../../test/helpers/ingest.js";
 import { initWorkspace } from "../workspace/init.js";
-import { emptyDashboard, ledgerLabel, loadDashboard, sidebarLines, type Dashboard } from "./dashboard.js";
+import { draftPanelLine, emptyDashboard, ledgerLabel, loadDashboard, sidebarLines, type Dashboard } from "./dashboard.js";
 
 let h: IngestHarness | undefined;
 let tmp: string | undefined;
@@ -92,5 +92,47 @@ describe("sidebarLines", () => {
   it("labels the ledger head for the header", () => {
     expect(ledgerLabel(base())).toBe("ledger #12 a1b2c3d4");
     expect(ledgerLabel(emptyDashboard())).toBe("ledger -");
+  });
+});
+
+describe("sidebarLines: session skill and drafts", () => {
+  const ws = (): Dashboard => ({ ...emptyDashboard(), workspace: { id: "etl", name: "Etlaala", currency: "SAR", timezone: "UTC" } });
+
+  it("shows nothing extra when no skill is pinned and no draft was saved", () => {
+    expect(text(ws())).not.toContain("SKILL");
+    expect(text(ws())).not.toContain("DRAFTS");
+    expect(sidebarLines(ws(), new Date(), { skill: null, drafts: [] }).map((l) => l.text)).not.toContain("SKILL");
+  });
+
+  it("shows the pinned skill and the drafts saved this session, newest last", () => {
+    const lines = sidebarLines(ws(), new Date(), { skill: "email-sequence", drafts: ["email/umrah v1 · sha 1a2b3c4d · copy check: FAIL (2 errors)", "email/umrah v2 · sha 5e6f7a8b · copy check: PASS"] });
+    const t = lines.map((l) => l.text);
+    expect(t).toContain("SKILL");
+    expect(t).toContain("email-sequence");
+    expect(t).toContain("DRAFTS");
+    expect(t).toContain("2 saved this session");
+    expect(t.at(t.indexOf("2 saved this session") + 1)).toContain("v1");
+    expect(lines.find((l) => l.text.includes("FAIL"))?.tone).toBe("warn");
+    expect(lines.find((l) => l.text.includes("PASS"))?.tone).toBe("good");
+  });
+
+  it("keeps the last four drafts only, and sits before the gate section", () => {
+    const drafts = Array.from({ length: 6 }, (_, i) => `email/x v${i + 1} · copy check: PASS`);
+    const t = sidebarLines(ws(), new Date(), { skill: null, drafts }).map((l) => l.text);
+    expect(t).toContain("6 saved this session");
+    expect(t.filter((x) => x.startsWith("email/x"))).toHaveLength(4);
+    expect(t.some((x) => x.startsWith("email/x v1 "))).toBe(false);
+    expect(t.indexOf("DRAFTS")).toBeLessThan(t.indexOf("GATE"));
+  });
+});
+
+describe("draftPanelLine", () => {
+  it("shortens a draft card to name, version and PASS or FAIL for the narrow panel", () => {
+    expect(draftPanelLine("email/umrah v2 · sha 5e6f7a8b · copy check: PASS")).toBe("email/umrah v2 PASS");
+    expect(draftPanelLine("email/umrah v3 · sha 5e6f7a8b · copy check: FAIL (2 errors)")).toBe("email/umrah v3 FAIL");
+    expect(draftPanelLine("posts/guide v1 · copy check: not checked")).toBe("posts/guide v1 unchecked");
+  });
+  it("returns null for a card that is not a saved draft", () => {
+    expect(draftPanelLine("3 files")).toBeNull();
   });
 });

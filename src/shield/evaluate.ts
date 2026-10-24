@@ -42,6 +42,8 @@ export interface PolicyContext {
    * simulated. "execute" (approve and strike, the default): a missing simulation fails.
    */
   stage?: "propose" | "execute";
+  /** Posts already published today, counted against max_posts_per_day with the plan's own. */
+  postsToday?: number;
 }
 
 export interface PolicyCheck {
@@ -123,6 +125,13 @@ export function checkPolicy(policy: Policy, subject: PolicySubject, context: Pol
       const min = policy.limits.min_simulation_p_positive;
       checks.push({ rule: "simulation_passes", ok: sim.p50 > 0 && sim.p_positive >= min - EPSILON, limit: min, actual: sim.p_positive, note: `${sim.id}: P50 ${sim.p50}, needs P50 above 0 and P(above zero) of at least ${min}` });
     }
+  }
+
+  const posts = subject.actions.filter((a) => a.type === "publish_post").length;
+  if (posts > 0) {
+    const limit = policy.limits.max_posts_per_day;
+    const actual = posts + (context.postsToday ?? 0);
+    checks.push({ rule: "max_posts_per_day", ok: actual <= limit, limit, actual });
   }
 
   const deltas = budgets.map((a) => a.to - a.from);

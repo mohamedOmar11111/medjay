@@ -61,6 +61,7 @@ const POLICY = {
     max_daily_budget_decrease_pct: 100,
     max_total_spend_cap: { amount: 1000, currency: "USD", period: "day", scope: "workspace" },
     max_new_campaign_daily_budget: 50,
+    max_posts_per_day: 5,
   },
   forbidden_actions: [
     "delete_campaign",

@@ -7,8 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { answerIntent, askAgent, type AskContext, type Reply } from "./ask.js";
 import { cleanPastedSecret } from "../cli/secret-input.js";
 import { helpAnswer, modelErrorAnswer, renderAnswer, type Suggestion } from "./answers.js";
-import { COMMANDS, parseInput, resolveInput } from "./commands.js";
-import { ledgerLabel, sidebarLines, emptyDashboard, type Dashboard, type PanelLine } from "./dashboard.js";
+import { COMMANDS, parseInput, pinnedSkillPrompt, resolveInput } from "./commands.js";
+import { draftPanelLine, ledgerLabel, sidebarLines, emptyDashboard, type Dashboard, type PanelLine } from "./dashboard.js";
 import { buildFeedLines, splashText, type Entry, type EntryKind, type FeedTone } from "./feed.js";
 import { detectLanguage, routeIntent, toLatinDigits, type Language, type Routed } from "./intent.js";
 import { classifyModelFailure } from "./model-errors.js";
@@ -116,6 +116,10 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const secretBuf = useRef("");
   /** Details behind each step card, for /expand. */
   const cards = useRef<string[][]>([]);
+  /** The skill pinned with /skill, and the compact lines of drafts saved in this session (side panel). */
+  const [pinnedSkill, setPinnedSkill] = useState<string | null>(null);
+  const pinnedRef = useRef<string | null>(null);
+  const [sessionDrafts, setSessionDrafts] = useState<string[]>([]);
   const [secretLen, setSecretLen] = useState(0);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
@@ -206,10 +210,12 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
               const s = started.get(e.call_id);
               cards.current.push([`Tool: ${e.name} (${s?.class ?? "tool"})`, `Call: ${e.call_id} · step ${e.step}`, `Input fingerprint: ${s?.input_hash ?? "n/a"}`, `Result: ${e.ok ? "ok" : `failed (${e.error_kind ?? "error"})`}`, `Summary: ${e.summary}`]);
               add("card", `▸ [${cards.current.length}] ${e.label} · ${e.summary}`);
+              const saved = e.ok && e.name === "draft_save" ? draftPanelLine(e.summary) : null;
+              if (saved !== null) setSessionDrafts((d) => [...d, saved]);
             }
           };
           const ctx: AskContext = { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current, onEvent };
-          let reply = routed === null ? await askAgent(text, ctx) : routed.intent === "greet" ? await askAgent(text, ctx, "chat") : await answerIntent(routed, ctx);
+          let reply = routed === null ? await askAgent(pinnedSkillPrompt(pinnedRef.current, text), ctx) : routed.intent === "greet" ? await askAgent(text, ctx, "chat") : await answerIntent(routed, ctx);
           if (routed?.intent === "greet" && reply.modelFailure) {
             // no usable model: the fixed greeting still works, plus the one thing to do about it
             const hint = modelErrorAnswer(reply.modelFailure, lang);
@@ -317,6 +323,20 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
           const detail = cards.current[resolved.n - 1];
           return void (detail ? add("out", detail.join("\n")) : add("err", `There is no card ${resolved.n}. Cards are numbered as they appear in the feed.`));
         }
+        if (resolved.action === "skill") {
+          const lang = langRef.current;
+          if (resolved.mode === "pin") {
+            pinnedRef.current = resolved.name;
+            setPinnedSkill(resolved.name);
+            return void add("info", pick(lang)(`Pinned skill: ${resolved.name}. Your next questions go to the agent with it. /skill off to unpin. (/skills shows what exists; a wrong name is reported when the agent tries to load it.)`, `تم تثبيت المهارة: ${resolved.name}. أسئلتك الجاية تروح للوكيل معها. /skill off لإلغاء التثبيت.`));
+          }
+          if (resolved.mode === "clear") {
+            pinnedRef.current = null;
+            setPinnedSkill(null);
+            return void add("info", pick(lang)("Skill unpinned.", "تم إلغاء تثبيت المهارة."));
+          }
+          return void add("info", pinnedRef.current === null ? pick(lang)("No skill is pinned. /skill <name> pins one; /skills lists them.", "ما في مهارة مثبتة. /skill <name> يثبّت وحدة؛ /skills يعرضها.") : pick(lang)(`${pinnedRef.current} is pinned. /skill off unpins it.`, `${pinnedRef.current} مثبتة. /skill off لإلغاء التثبيت.`));
+        }
         if (resolved.action === "connect") {
           secretBuf.current = "";
           setSecretLen(0);
@@ -355,7 +375,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         return void add("info", pick(lang)(`Pick a number from 1 to ${suggestions.current.length}, or just ask in your own words.`, `اختر رقماً من 1 إلى ${suggestions.current.length}، أو اسأل بكلامك.`));
       }
       const pickedNumber = /^[1-9]$/.test(toLatinDigits(text)) ? suggestions.current[Number(toLatinDigits(text)) - 1] : undefined;
-      const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : routeIntent(text);
+      const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : pinnedRef.current !== null ? null : routeIntent(text); // a pinned skill means the agent answers
       if (running.current) return void add("err", pick(lang)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
       if (wsRef.current === null) return void add("err", pick(lang)("There's no workspace yet.", "ما في مساحة عمل للحين."));
       ask(routed, text, lang);
@@ -430,7 +450,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
 
   const lang = langRef.current;
   const panelRows = bodyHeight - 2;
-  const rawPanel = cols >= MIN_COLS_FOR_SIDEBAR ? sidebarLines(dash) : null;
+  const rawPanel = cols >= MIN_COLS_FOR_SIDEBAR ? sidebarLines(dash, new Date(), { skill: pinnedSkill, drafts: sessionDrafts }) : null;
   const sidebar = rawPanel === null ? null : (rawPanel.length > panelRows ? rawPanel.filter((l) => l.text !== "") : rawPanel).slice(0, panelRows);
   const where = dash.workspace ? `${dash.workspace.name} · ${dash.workspace.currency}` : ws === null ? "setting up" : "";
   const scrolled = view.offset > 0 ? `↑ scrolled back ${view.offset} lines (${view.more} above) · PgDn returns` : null;

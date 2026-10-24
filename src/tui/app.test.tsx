@@ -374,7 +374,7 @@ describe("the prompt and shortcuts", () => {
   });
 
   it("/help explains how to just ask, lists the shortcuts and the keys", async () => {
-    const t = mount({ size: { cols: 110, rows: 50 } });
+    const t = mount({ size: { cols: 110, rows: 64 } });
     await t.send("/help");
     const f = t.frame();
     for (const word of ["Just ask in your own words", "/scout", "/diagnose", "/simulate", "/media", "/plan", "/ledger", "/doctor", "Esc stop", "mdj approve"]) expect(f).toContain(word);
@@ -450,5 +450,83 @@ describe("buildFeedLines", () => {
     expect(lines.find((l) => l.text === "body line")!.tone).toBe("normal");
     expect(lines.find((l) => l.text === "  1. one")!.tone).toBe("dim");
     expect(lines.find((l) => l.tone === "err")!.text).toBe("! bad");
+  });
+});
+
+describe("skills and drafts in the shell", () => {
+  const ev = (e: RunEvent) => encodeEvent(e);
+  const FIN: RunEvent = { type: "run.finished", status: "completed", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "Done.", proposals: 0 };
+  const SHA8 = "5e6f7a8b";
+
+  it("/skills and /drafts run the fixed read commands", async () => {
+    const t = mount();
+    await t.send("/skills");
+    expect(t.calls[0]!.argv).toEqual(["skills", "list", "--workspace", "/work/etl"]);
+    t.calls[0]!.finish(0);
+    await wait();
+    await t.send("/drafts");
+    expect(t.calls[1]!.argv).toEqual(["draft", "list", "--workspace", "/work/etl"]);
+    t.unmount();
+  });
+
+  it("/skill pins a skill in the side panel and sends the next question through the agent with it named first", async () => {
+    const t = mount();
+    await t.send("/skill email-sequence");
+    expect(t.frame()).toContain("Pinned skill: email-sequence");
+    expect(t.frame()).toContain("SKILL");
+    await t.send("how are my ads doing?"); // normally a fixed intent; with a pin it goes to the agent
+    const argv = t.calls[0]!.argv;
+    expect(argv.slice(0, 2)).toEqual(["run", "--events"]);
+    expect(argv.at(-1)).toContain('Use the skill "email-sequence"');
+    expect(argv.at(-1)).toContain("how are my ads doing?");
+    t.calls[0]!.emit(ev(FIN));
+    t.calls[0]!.finish(0);
+    await wait(150);
+    t.unmount();
+  });
+
+  it("/skill off unpins, and /skill alone says what is pinned", async () => {
+    const t = mount();
+    await t.send("/skill");
+    expect(t.frame()).toContain("No skill is pinned");
+    await t.send("/skill email-sequence");
+    await t.send("/skill");
+    expect(t.frame()).toContain("email-sequence is pinned");
+    await t.send("/skill off");
+    expect(t.frame()).toContain("Skill unpinned");
+    expect(t.frame()).not.toContain("SKILL");
+    t.unmount();
+  });
+
+  it("refuses a skill name that is not plain, without pinning anything", async () => {
+    const t = mount();
+    await t.send("/skill ../etc");
+    expect(t.frame()).toContain("usage: /skill");
+    expect(t.frame()).not.toContain("Pinned skill");
+    t.unmount();
+  });
+
+  it("shows a saved draft as a card with version, short hash and PASS, and lists it in the side panel", async () => {
+    const t = mount();
+    await t.send("write the umrah email");
+    const call = t.calls[0]!;
+    call.emit(ev({ type: "tool.started", step: 1, call_id: "c1_1", name: "draft_save", class: "draft", input_hash: "abc123def456" }));
+    call.emit(ev({ type: "tool.finished", step: 1, call_id: "c1_1", name: "draft_save", ok: true, label: "Draft saved", summary: `email/umrah v2 · sha ${SHA8} · copy check: PASS` }));
+    await wait();
+    expect(t.frame()).toContain(`▸ [1] Draft saved · email/umrah v2 · sha ${SHA8} · copy check: PASS`);
+    expect(t.frame()).toContain("DRAFTS");
+    expect(t.frame()).toContain("email/umrah v2 PASS");
+    call.emit(ev(FIN));
+    call.finish(0);
+    await wait(150);
+    t.unmount();
+  });
+
+  it("still refuses to approve or strike from the shell", async () => {
+    const t = mount();
+    await t.send("/strike 1");
+    expect(t.frame()).toContain("not available here");
+    expect(t.calls).toHaveLength(0);
+    t.unmount();
   });
 });

@@ -90,8 +90,16 @@ export interface PanelLine {
 const money = (n: number) => Math.round(n).toLocaleString("en-US");
 const short = (hash: string) => hash.slice(0, 8);
 
+/** What this TUI session has done: the skill pinned for the agent and the draft cards seen so far. */
+export interface SessionPanel {
+  skill: string | null;
+  drafts: string[];
+}
+export const emptySession = (): SessionPanel => ({ skill: null, drafts: [] });
+const MAX_DRAFT_LINES = 4;
+
 /** The side panel as plain lines, so the layout can be tested without a terminal. */
-export function sidebarLines(d: Dashboard, now: Date = new Date()): PanelLine[] {
+export function sidebarLines(d: Dashboard, now: Date = new Date(), session: SessionPanel = emptySession()): PanelLine[] {
   const out: PanelLine[] = [];
   const head = (text: string) => out.push({ text, tone: "head" });
   const line = (text: string, tone: Tone = "normal") => out.push({ text, tone });
@@ -110,6 +118,17 @@ export function sidebarLines(d: Dashboard, now: Date = new Date()): PanelLine[] 
   else {
     line(`${open.length} waiting · ${d.plans.length} total`, open.length > 0 ? "warn" : "normal");
     for (const p of d.plans.slice(-5)) line(`#${p.number} ${p.state}${p.state === "proposed" && Date.parse(p.expires_at) < now.getTime() ? " (expired)" : ""}`, "dim");
+  }
+  if (session.skill !== null) {
+    head("");
+    head("SKILL");
+    line(session.skill);
+  }
+  if (session.drafts.length > 0) {
+    head("");
+    head("DRAFTS");
+    line(`${session.drafts.length} saved this session`);
+    for (const draft of session.drafts.slice(-MAX_DRAFT_LINES)) line(draft, draft.includes("FAIL") ? "warn" : draft.includes("PASS") ? "good" : "dim");
   }
   head("");
   head("GATE");
@@ -146,3 +165,11 @@ export function sidebarLines(d: Dashboard, now: Date = new Date()): PanelLine[] 
 }
 
 export const ledgerLabel = (d: Dashboard): string => (d.ledger ? `ledger #${d.ledger.seq} ${short(d.ledger.head)}` : "ledger -");
+
+const DRAFT_CARD = /^(\S+\/\S+) (v\d+)(?: · sha [0-9a-f]+)? · copy check: (PASS|FAIL|not checked)/;
+
+/** A "Draft saved" card as one short side-panel line, or null when the card is not one. */
+export function draftPanelLine(summary: string): string | null {
+  const m = DRAFT_CARD.exec(summary);
+  return m ? `${m[1]} ${m[2]} ${m[3] === "not checked" ? "unchecked" : m[3]}` : null;
+}

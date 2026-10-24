@@ -72,6 +72,13 @@ describe("skill tools", () => {
     expect(third.trust).toBe("untrusted");
   });
 
+  it("skill_load reports the SHA-256 of the body it returns", async () => {
+    const { registry, run } = await setup();
+    const owned = (await registry.invoke({ name: "skill_load", input: { name: "gd-m09-email-lifecycle-planner" } }, run)) as { output: { body: string; sha256: string } };
+    const { createHash } = await import("node:crypto");
+    expect(owned.output.sha256).toBe(createHash("sha256").update(owned.output.body).digest("hex"));
+  });
+
   it("skill_load on an unknown name says so and suggests close ones", async () => {
     const { registry, run } = await setup();
     const r = (await registry.invoke({ name: "skill_load", input: { name: "gd-m09-email" } }, run)) as { ok: false; error: { message: string } };

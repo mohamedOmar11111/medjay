@@ -64,14 +64,27 @@ describe("cardFor the skill tools", () => {
 });
 
 describe("cardFor the draft tools", () => {
-  it("save: which draft, which version, and the copy check", () => {
-    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 2, check: { status: "pass" } }, true)).toEqual({ label: "Draft saved", summary: "email/umrah v2 · copy check: pass" });
-    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 3, check: { status: "fail", errors: 2 } }, true).summary).toBe("email/umrah v3 · copy check: fail (2 errors)");
+  const SHA = "1a2b3c4d5e6f0000000000000000000000000000000000000000000000000000";
+  it("save: which draft, version, short hash and the copy check as PASS or FAIL", () => {
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 2, sha256: SHA, check: { status: "pass" } }, true)).toEqual({ label: "Draft saved", summary: "email/umrah v2 · sha 1a2b3c4d · copy check: PASS" });
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 3, sha256: SHA, check: { status: "fail", errors: 2 } }, true).summary).toBe("email/umrah v3 · sha 1a2b3c4d · copy check: FAIL (2 errors)");
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 1, sha256: SHA, check: { status: "not_checked" } }, true).summary).toBe("email/umrah v1 · sha 1a2b3c4d · copy check: not checked");
   });
-  it("read, list and diff", () => {
-    expect(cardFor("draft_read", {}, { workflow: "email", slug: "umrah", version: 2, intact: true }, true)).toEqual({ label: "Draft read", summary: "email/umrah v2" });
+  it("save: no hash in the output leaves it out and never prints a long value", () => {
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 2, check: { status: "pass" } }, true).summary).toBe("email/umrah v2 · copy check: PASS");
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 2, sha256: "not a hash <script>", check: { status: "pass" } }, true).summary).toBe("email/umrah v2 · copy check: PASS");
+  });
+  it("read shows the short hash and flags a draft changed outside Medjay", () => {
+    expect(cardFor("draft_read", {}, { workflow: "email", slug: "umrah", version: 2, sha256: SHA, intact: true }, true)).toEqual({ label: "Draft read", summary: "email/umrah v2 · sha 1a2b3c4d" });
     expect(cardFor("draft_read", {}, { workflow: "email", slug: "umrah", version: 2, intact: false }, true).summary).toBe("email/umrah v2 · changed outside Medjay");
+  });
+  it("list and diff", () => {
     expect(cardFor("draft_list", {}, { drafts: [{}, {}] }, true)).toEqual({ label: "Drafts", summary: "2 drafts" });
     expect(cardFor("draft_diff", {}, { workflow: "email", slug: "umrah", from: 1, to: 2, added: 3, removed: 1 }, true)).toEqual({ label: "Draft changes", summary: "email/umrah v1 to v2 · +3 -1 lines" });
+    expect(cardFor("draft_diff", {}, { workflow: "email", slug: "umrah", from: 1, to: 2, added: 3, removed: 1, from_sha256: SHA, to_sha256: "ffeeddcc".padEnd(64, "0") }, true).summary).toBe("email/umrah v1 (1a2b3c4d) to v2 (ffeeddcc) · +3 -1 lines");
+  });
+  it("skill_load shows the skill's short hash when the tool reports one", () => {
+    expect(cardFor("skill_load", {}, { name: "email-sequence", source: "workspace", trust: "owned", sha256: SHA }, true).summary).toBe("email-sequence (workspace, yours) · sha 1a2b3c4d");
+    expect(cardFor("skill_load", {}, { name: "email-sequence", source: "workspace", trust: "owned" }, true).summary).toBe("email-sequence (workspace, yours)");
   });
 });
