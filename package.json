@@ -1,6 +1,6 @@
 {
   "name": "medjay",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Open, CLI-first, all-model growth agent harness with spend guardrails and approval-gated execution.",
   "license": "MIT",
   "author": "Mohamed Omar",
