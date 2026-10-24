@@ -26,8 +26,8 @@
   ],
   "type": "module",
   "bin": {
-    "medjay": "./dist/cli.js",
-    "mdj": "./dist/cli.js"
+    "medjay": "dist/cli.js",
+    "mdj": "dist/cli.js"
   },
   "files": [
     "dist/**/*.js",

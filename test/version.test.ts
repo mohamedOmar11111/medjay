@@ -10,5 +10,5 @@ it("keeps VERSION in sync with package.json", async () => {
 
 it("registers both medjay and mdj binaries on the same entry point", async () => {
   const pkg = JSON.parse(await readFile(join(import.meta.dirname, "..", "package.json"), "utf8"));
-  expect(pkg.bin).toEqual({ medjay: "./dist/cli.js", mdj: "./dist/cli.js" });
+  expect(pkg.bin).toEqual({ medjay: "dist/cli.js", mdj: "dist/cli.js" }); // no "./": npm strips a bin path that starts with it when publishing
 });
