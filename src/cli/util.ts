@@ -1,6 +1,7 @@
 import { userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { Ledger } from "../audit/ledger.js";
+import { DraftStore } from "../drafts/store.js";
 import { KeyringStore } from "../models/credentials.js";
 import { ensureSigningKey, type SigningKeys } from "../plan/signing.js";
 import { PlanRepo } from "../plan/repo.js";
@@ -59,6 +60,7 @@ export async function openPlanContext(workspaceOption: string | undefined, needS
       repo: new PlanRepo(store),
       ledger: new Ledger(join(dir, LEDGER_FILE)),
       policy,
+      drafts: new DraftStore(dir),
       ...(signing ? { signing } : {}),
       now: () => new Date(),
     },

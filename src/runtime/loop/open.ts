@@ -65,15 +65,15 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
 
   const ledger = new Ledger(join(dir, LEDGER_PATH));
   const registry = new ToolRegistry({ policy, ledger });
-  for (const tool of createBuiltinTools({ policy, style: { packs, extraBanned, allow: config.style.slop.allow, claims: context.claims, failOn: config.style.slop.fail_on } })) {
-    registry.register(tool);
-  }
   const drafts = new DraftStore(dir, {
     checker: await createDraftChecker(dir),
     audit: async ({ event, author, ...payload }) => {
       await ledger.append({ actor: String(author), event: String(event), payload });
     },
   });
+  for (const tool of createBuiltinTools({ policy, style: { packs, extraBanned, allow: config.style.slop.allow, claims: context.claims, failOn: config.style.slop.fail_on }, drafts })) {
+    registry.register(tool);
+  }
   for (const tool of draftTools(drafts)) registry.register(tool);
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
   const home = options.home ?? homedir();
