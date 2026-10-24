@@ -28,6 +28,8 @@ export interface AppProps {
   /** Terminal size override (tests); otherwise the real terminal is followed. */
   size?: { cols: number; rows: number };
   onExit?: () => void;
+  /** Called with the folder of a workspace the app has just created, so the launcher can remember it. */
+  onWorkspace?: (dir: string) => void;
 }
 
 const SIDEBAR_WIDTH = 30;
@@ -84,10 +86,12 @@ function useTerminalSize(override?: { cols: number; rows: number }): { cols: num
 
 const hasLetters = (text: string) => /[A-Za-z؀-ۿ]/.test(text);
 
-export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit }: AppProps) {
+export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit, onWorkspace }: AppProps) {
   const { exit } = useApp();
   const { cols, rows } = useTerminalSize(sizeOverride);
   const nextId = useRef(10);
+  const onWorkspaceRef = useRef(onWorkspace);
+  onWorkspaceRef.current = onWorkspace;
   const [ws, setWsState] = useState<string | null>(workspaceDir);
   const wsRef = useRef<string | null>(workspaceDir);
   const setWs = (dir: string | null) => {
@@ -264,6 +268,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         }
         onboardRef.current = null;
         setWs(dir);
+        onWorkspaceRef.current?.(dir);
         const [head = "", ...rest] = onboardingDone(dir, lang).split("\n");
         const next = helpAnswer(lang, false).next.filter((s) => s.intent === "performance" || s.intent === "data");
         suggestions.current = next;

@@ -35,7 +35,7 @@ const CTX = { workspace: "etlaala-ksa", names: ["Etlaala KSA"], brand: ["Etlaala
 
 describe("sanitizeText", () => {
   it("removes urls, emails, phone numbers, currency amounts and platform ids, and says what it removed", () => {
-    const r = sanitizeText("See https://etlaala.com/umrah?x=1 or mail omar@etlaala.com or +966 55 123 4567, spent SAR 3,780 (also 1,200 ريال and $45.50), adset 120200000000001 and act_998877665544, gclid=Cj0KCQ_abc123XYZ789");
+    const r = sanitizeText("See https://example.com/umrah?x=1 or mail sara@example.com or +966 55 123 4567, spent SAR 3,780 (also 1,200 ريال and $45.50), adset 120200000000001 and act_998877665544, gclid=Cj0KCQ_abc123XYZ789");
     expect(r.text).toBe("See [url] or mail [email] or [phone], spent [amount] (also [amount] and [amount]), adset [id] and [id], gclid=[id]");
     expect(r.removed).toEqual({ url: 1, email: 1, phone: 1, amount: 3, id: 3 });
   });

@@ -13,18 +13,31 @@ One folder is one client workspace. Medjay never converts currencies silently, n
 
 ## Quickstart
 
-Requires Node 22.13 or newer.
+Requires [Node.js](https://nodejs.org) 22.13 or newer. Then, in any terminal:
 
 ```bash
-npm install
-npm run build
-npm link            # puts `mdj` and `medjay` on your PATH (or run: node dist/cli.js ...)
+npm install -g medjay
+mdj
+```
 
-mdj demo            # the whole loop on a synthetic Saudi travel advertiser, in a temp folder
+That is all. The first time you run `mdj` it asks four things in plain English or Arabic (your business name, what you sell, your currency, a yes), creates your workspace in a `Medjay` folder in your home directory, and tells you to type `/connect` to add your AI model key. The key is typed hidden and stored in your operating system's keychain, never in a file. Next time you run `mdj`, from any folder, it reopens the workspace you used last.
+
+Want to see it work before connecting anything?
+
+```bash
+mdj demo                  # the whole loop on a synthetic Saudi travel advertiser, in a temp folder
 mdj demo --auto-approve   # the same, approving and exporting the first plan
 ```
 
-Your own workspace:
+Working from a clone of this repository instead:
+
+```bash
+npm install && npm run build && npm link
+```
+
+Where things go: new workspaces are created in `~/Medjay` (change it with the `MEDJAY_WORKSPACES` environment variable); the "last workspace" note is kept in `~/.medjay` (`MEDJAY_HOME`). Pass `--workspace <folder>` to any command to use a specific workspace.
+
+Your own workspace, step by step with the commands:
 
 ```bash
 mdj init my-client --id my-client --business-type agency --timezone Asia/Riyadh --currency SAR --language ar

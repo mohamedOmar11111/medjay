@@ -326,7 +326,8 @@ describe("greetings go to the model", () => {
 
 describe("first run", () => {
   it("asks setup questions in English and Arabic, then creates the workspace through the CLI and starts using it", async () => {
-    const t = mount({ workspaceDir: null });
+    const onWorkspace = vi.fn();
+    const t = mount({ workspaceDir: null, onWorkspace });
     await wait(60);
     expect(t.frame()).toContain("called?");
     expect(t.frame()).toContain("ايش اسم نشاطك");
@@ -343,6 +344,8 @@ describe("first run", () => {
     await wait(80);
     expect(t.frame()).toContain("Your workspace is ready.");
     expect(t.frame()).toContain("data");
+    expect(t.frame()).toContain("/connect");
+    expect(onWorkspace).toHaveBeenCalledWith(expect.stringContaining("etlaala-ksa"));
     expect(t.load).toHaveBeenCalledWith(expect.stringContaining("etlaala-ksa"));
     await t.send("how are my ads doing?");
     expect(t.calls[1]!.argv[0]).toBe("scout");

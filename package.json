@@ -1,15 +1,43 @@
 {
   "name": "medjay",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Open, CLI-first, all-model growth agent harness with spend guardrails and approval-gated execution.",
   "license": "MIT",
   "author": "Mohamed Omar",
+  "homepage": "https://github.com/mohamedOmar11111/medjay#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohamedOmar11111/medjay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mohamedOmar11111/medjay/issues"
+  },
+  "keywords": [
+    "marketing",
+    "growth",
+    "ai-agent",
+    "cli",
+    "tui",
+    "google-ads",
+    "meta-ads",
+    "seo",
+    "guardrails",
+    "mcp"
+  ],
   "type": "module",
-  "private": true,
   "bin": {
     "medjay": "./dist/cli.js",
     "mdj": "./dist/cli.js"
   },
+  "files": [
+    "dist/**/*.js",
+    "!dist/**/*.test.js",
+    "README.md",
+    "LICENSE",
+    "docs/SPEC.md",
+    "docs/assets",
+    "fixtures/etlaala-ksa"
+  ],
   "engines": {
     "node": ">=22.13"
   },
@@ -21,7 +49,8 @@
     "fixtures": "tsx fixtures/generate-etlaala-ksa.ts",
     "test:live": "vitest run --config vitest.live.config.ts",
     "dev": "tsx src/cli.ts",
-    "spike:m0": "tsx spikes/m0-ai-sdk/spike.ts"
+    "spike:m0": "tsx spikes/m0-ai-sdk/spike.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.82",

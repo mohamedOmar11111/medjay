@@ -1,12 +1,12 @@
 // Starts the terminal app. Everything here is wiring: find the workspace, point the runner at this
 // same CLI, take over the screen, and give it back (always) when the app ends.
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { render } from "ink";
 import { createElement } from "react";
 import { VERSION } from "../version.js";
-import { findWorkspace } from "../workspace/load.js";
+import { rememberWorkspace, resolveStartWorkspace, workspaceRoot } from "../workspace/home.js";
 import { App } from "./app.js";
 import { loadDashboard } from "./dashboard.js";
 import { spawnRunner } from "./runner.js";
@@ -27,7 +27,12 @@ export async function launch(options: { workspace?: string } = {}): Promise<void
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("the interactive app needs a terminal; run a command such as `mdj scout` instead, or `mdj --help`");
   }
-  const workspaceDir = options.workspace ? resolve(options.workspace) : await findWorkspace(process.cwd());
+  // --workspace, else a workspace above this folder, else the one used last, else first-run setup in ~/Medjay
+  const start = await resolveStartWorkspace({ flag: options.workspace, cwd: process.cwd() });
+  const workspaceDir = start.dir;
+  if (workspaceDir !== null) await rememberWorkspace(workspaceDir);
+  const baseDir = workspaceRoot();
+  if (workspaceDir === null) await mkdir(baseDir, { recursive: true });
   const entry = cliEntry();
   const runner = spawnRunner(entry.path, process.execPath, entry.nodeArgs);
   process.stdout.write(ENTER_SCREEN);
@@ -36,7 +41,7 @@ export async function launch(options: { workspace?: string } = {}): Promise<void
   for (const sig of ["SIGTERM", "SIGHUP"] as const) process.once(sig, () => (leave(), process.exit(143)));
   try {
     const app = render(
-      createElement(App, { workspaceDir, baseDir: process.cwd(), runner, version: VERSION, load: (dir: string) => loadDashboard(dir) }),
+      createElement(App, { workspaceDir, baseDir, runner, version: VERSION, load: (dir: string) => loadDashboard(dir), onWorkspace: (dir: string) => void rememberWorkspace(dir) }),
       { exitOnCtrlC: false },
     );
     await app.waitUntilExit();

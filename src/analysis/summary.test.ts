@@ -20,8 +20,8 @@ let n = 0;
 function put(dimension: string, key: string, spend: number, conversions: number, clicks = 0, period = ["2026-09-01", "2026-09-30"]): void {
   const db = store.database();
   const source = `s${n++}`;
-  db.prepare("INSERT INTO sources (source_id, mapping_id, kind, platform, file, sha256, rows, issues_json, period_start, period_end, ingested_at) VALUES (?, 'm', 'ad_summary', 'google', 'f', 'h', 1, '[]', ?, ?, 't')").run(source, period[0], period[1]);
-  db.prepare("INSERT INTO fact_period (source_id, platform, period_start, period_end, dimension, key, spend, impressions, clicks, conversions, conv_value, currency) VALUES (?, 'google', ?, ?, ?, ?, ?, 0, ?, ?, 0, 'SAR')").run(source, period[0], period[1], dimension, key, spend, clicks, conversions);
+  db.prepare("INSERT INTO sources (source_id, mapping_id, kind, platform, file, sha256, rows, issues_json, period_start, period_end, ingested_at) VALUES (?, 'm', 'ad_summary', 'google', 'f', 'h', 1, '[]', ?, ?, 't')").run(source, period[0]!, period[1]!);
+  db.prepare("INSERT INTO fact_period (source_id, platform, period_start, period_end, dimension, key, spend, impressions, clicks, conversions, conv_value, currency) VALUES (?, 'google', ?, ?, ?, ?, ?, 0, ?, ?, 0, 'SAR')").run(source, period[0]!, period[1]!, dimension, key, spend, clicks, conversions);
 }
 
 describe("periodSummary", () => {
