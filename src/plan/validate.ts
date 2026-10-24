@@ -10,7 +10,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalJson } from "../audit/canonical.js";
 import { parseCsv } from "../ingest/csv.js";
-import { buildEditorCsv, buildMetaMutations, EDITOR_EXTRA_HEADERS, EDITOR_HEADERS } from "./export.js";
+import { resolvePublishDrafts, type DraftPort } from "./draft-binding.js";
+import { buildEditorCsv, buildMetaMutations, buildWordPressRequests, EDITOR_EXTRA_HEADERS, EDITOR_HEADERS } from "./export.js";
 import type { Plan } from "./types.js";
 
 export interface ExportIssue {
@@ -142,7 +143,48 @@ function checkMetaMutations(bytes: Buffer, plan: Plan, ids: string[]): ExportIss
   return issues;
 }
 
-export async function validateExport(options: { dir: string; plan: Plan }): Promise<ExportValidation> {
+function wordpressIds(plan: Plan): string[] {
+  return plan.actions.filter((a) => a.type === "publish_post" && a.executor === "export").map((a) => a.id);
+}
+
+async function checkWordPressPosts(bytes: Buffer | undefined, plan: Plan, ids: string[], drafts: DraftPort | undefined): Promise<ExportIssue[]> {
+  const file = "wordpress-posts.json";
+  const issues: ExportIssue[] = [];
+  const add = (message: string, row?: number) => issues.push({ file, ...(row === undefined ? {} : { row }), message, action_ids: ids });
+  // the draft text is read again: the file must still be exactly what that approved version produces
+  const resolved = await resolvePublishDrafts(plan.actions, drafts);
+  for (const [, message] of resolved.problems) add(message);
+  if (resolved.problems.size > 0) return issues;
+  if (!bytes) {
+    add("the file is missing");
+    return issues;
+  }
+  let doc: { plan_hash?: unknown; requests?: unknown };
+  try {
+    doc = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    add(`not valid JSON: ${error instanceof Error ? error.message.slice(0, 100) : String(error)}`);
+    return issues;
+  }
+  if (doc.plan_hash !== plan.plan_hash) add("plan_hash does not match the approved plan");
+  if (!Array.isArray(doc.requests)) {
+    add("requests is not an array");
+    return issues;
+  }
+  doc.requests.forEach((r: Record<string, unknown>, i) => {
+    const row = i + 1;
+    if (r.method !== "POST") add(`method is "${String(r.method)}", expected POST`, row);
+    if (r.path !== "/wp-json/wp/v2/posts") add(`path "${String(r.path)}" is not the WordPress posts endpoint`, row);
+    const params = (r.params ?? {}) as Record<string, unknown>;
+    if (!["draft", "pending", "publish"].includes(String(params.status))) add(`status "${String(params.status)}" is not draft, pending or publish`, row);
+    if (typeof r.expect_before !== "object" || r.expect_before === null) add("expect_before is missing, so nobody can tell if the post already exists", row);
+  });
+  const expected = buildWordPressRequests(plan.actions, resolved.drafts);
+  if (canonicalJson(doc.requests) !== canonicalJson(expected)) add("does not match what the approved plan produces; the file was edited or the exporter changed");
+  return issues;
+}
+
+export async function validateExport(options: { dir: string; plan: Plan; drafts?: DraftPort }): Promise<ExportValidation> {
   const { dir, plan } = options;
   const exportDir = join(dir, "exports", plan.plan_id);
   const issues: ExportIssue[] = [];
@@ -173,6 +215,11 @@ export async function validateExport(options: { dir: string; plan: Plan }): Prom
     const bytes = await read(join(exportDir, "meta-mutations.json"));
     checked.push("meta-mutations.json");
     issues.push(...(bytes ? checkMetaMutations(bytes, plan, meta) : [{ file: "meta-mutations.json", message: "the file is missing", action_ids: meta }]));
+  }
+  const wordpress = wordpressIds(plan);
+  if (wordpress.length > 0) {
+    checked.push("wordpress-posts.json");
+    issues.push(...(await checkWordPressPosts(await read(join(exportDir, "wordpress-posts.json")), plan, wordpress, options.drafts)));
   }
   for (const action of plan.actions) {
     if (action.type !== "code_patch") continue;

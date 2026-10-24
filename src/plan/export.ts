@@ -12,6 +12,8 @@ import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalJsonPretty } from "../audit/canonical.js";
 import { minorUnitFactor, toMinorUnits } from "./currency.js";
+import { resolvePublishDrafts, type BoundDraft, type DraftPort } from "./draft-binding.js";
+import { markdownToHtml } from "./markdown.js";
 import type { ActionStatus } from "./repo.js";
 import type { CompiledAction, Plan, Term } from "./types.js";
 
@@ -80,6 +82,42 @@ export function buildMetaMutations(actions: CompiledAction[]): { requests: MetaR
     }
   }
   return { requests, written: requests.map((r) => r.action_id), problems };
+}
+
+export interface WordPressRequest {
+  action_id: string;
+  site: string;
+  method: "POST";
+  path: string;
+  params: Record<string, string>;
+  /** The draft version and hash this request was made from. */
+  draft: { workflow: string; slug: string; version: number; sha256: string };
+  /** SHA-256 of params.content, so the file can be checked against the draft text. */
+  content_sha256: string;
+  expect_before: { note: string };
+}
+
+const isPublish = (a: CompiledAction): a is Extract<CompiledAction, { type: "publish_post" }> => a.type === "publish_post" && a.executor === "export";
+
+/** WordPress has no file import for a single post, so the export is the exact request a person or a connector would send. Nothing is sent. */
+export function buildWordPressRequests(actions: CompiledAction[], drafts: ReadonlyMap<string, BoundDraft>): WordPressRequest[] {
+  const requests: WordPressRequest[] = [];
+  for (const action of actions.filter(isPublish)) {
+    const bound = drafts.get(action.id);
+    if (!bound) continue;
+    const content = markdownToHtml(bound.text);
+    requests.push({
+      action_id: action.id,
+      site: action.site,
+      method: "POST",
+      path: "/wp-json/wp/v2/posts",
+      params: { title: action.title, content, status: action.post_status, ...(action.wp_slug ? { slug: action.wp_slug } : {}) },
+      draft: action.draft,
+      content_sha256: sha256(content),
+      expect_before: { note: "no post with this title exists yet on this site; stop if one does" },
+    });
+  }
+  return requests;
 }
 
 const needsConnector = (a: CompiledAction): boolean => a.executor === "mcp";
@@ -190,6 +228,8 @@ export async function exportPlan(options: {
   plan: Plan;
   pending: ReadonlySet<string>;
   now: Date;
+  /** The drafts store, to read the exact text of each post being exported. */
+  drafts?: DraftPort;
 }): Promise<ExportRun> {
   const { dir, plan, pending } = options;
   const exportDir = join(dir, "exports", plan.plan_id);
@@ -236,6 +276,27 @@ export async function exportPlan(options: {
     }
   }
 
+  // WordPress posts (rewritten from every post action, only if one is pending); each is re-checked against its draft first
+  if (pendingActions.some(isPublish)) {
+    const { drafts, problems } = await resolvePublishDrafts(plan.actions, options.drafts);
+    const requests = buildWordPressRequests(plan.actions, drafts);
+    if (requests.length > 0) {
+      const text = `${canonicalJsonPretty({
+        plan_id: plan.plan_id,
+        plan_hash: plan.plan_hash,
+        note: "Dry-run payloads: Medjay has not sent any of these. Send each to the site's WordPress REST API (or paste the content into the editor) only after confirming no post with that title exists yet.",
+        requests,
+      })}
+`;
+      await writeAtomic(join(exportDir, "wordpress-posts.json"), text);
+      artifacts["wordpress-posts.json"] = sha256(text);
+    }
+    for (const action of pendingActions.filter(isPublish)) {
+      const problem = problems.get(action.id);
+      outcomes.set(action.id, problem ? { action_id: action.id, status: "failed", detail: problem } : { action_id: action.id, status: "exported", artifact: "wordpress-posts.json" });
+    }
+  }
+
   for (const action of pendingActions) {
     if (outcomes.has(action.id)) continue;
     if (action.executor === "mcp") {
@@ -260,7 +321,7 @@ export async function exportPlan(options: {
 
   // Manual steps for everything that is not in the Editor CSV or a patch.
   // removals are in the CSV AND listed here, so a person can confirm them by hand in case Editor does not apply the Status column to a negative keyword
-  const manual = plan.actions.filter((a) => (!isGoogle(a) || a.type === "remove_negative_keywords") && !isMetaMutation(a) && a.type !== "code_patch" && !needsConnector(a));
+  const manual = plan.actions.filter((a) => (!isGoogle(a) || a.type === "remove_negative_keywords") && !isMetaMutation(a) && !isPublish(a) && a.type !== "code_patch" && !needsConnector(a));
   const changes = [
     `# Changes for plan ${plan.plan_id}`,
     "",
@@ -283,6 +344,7 @@ export async function exportPlan(options: {
       "google-ads-editor.csv: import with Google Ads Editor (Account > Import > From file). Editor lists every proposed change for review before you post.",
       "  The column headers have not been validated against a real Editor import yet; try the file in a test account first.",
       "meta-mutations.json: the exact Meta requests, as dry-run payloads (budgets in minor units). Nothing is sent by Medjay.",
+      "wordpress-posts.json: the exact WordPress REST requests for each post, with the draft version and hashes they were made from. Nothing is sent by Medjay.",
       "CHANGES.md: manual steps for platforms without a file import.",
       "patches/: patches for review. Medjay never applies or deploys them.",
       "manifest.json: every action with its status.",

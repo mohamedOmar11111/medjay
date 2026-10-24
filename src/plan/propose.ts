@@ -5,6 +5,7 @@ import type { Ledger } from "../audit/ledger.js";
 import type { PolicyContext } from "../shield/evaluate.js";
 import type { Policy } from "../shield/policy.js";
 import { compilePlan, PlanInputError, type CompileInput } from "./compile.js";
+import { resolvePublishDrafts, type DraftPort } from "./draft-binding.js";
 import { PolicyViolationError } from "./errors.js";
 import { writePlanFile } from "./files.js";
 import type { PlanRepo, PlanRow } from "./repo.js";
@@ -17,6 +18,8 @@ export interface PlanDeps extends PolicyContext {
   ledger: Ledger;
   policy: Policy;
   signing?: SigningKeys;
+  /** The drafts store, for checking the draft a publish_post action is bound to. */
+  drafts?: DraftPort;
   now: () => Date;
   /** Injectable for tests; defaults to cryptographic randomness. */
   random?: { code: () => string; nonce: () => string };
@@ -40,6 +43,11 @@ export async function proposePlan(deps: PlanDeps, input: Omit<CompileInput, "now
     if (action.type !== "code_patch") continue;
     const exists = await stat(join(deps.dir, "plans", action.artifact)).then((s) => s.isFile(), () => false);
     if (!exists) throw new PlanInputError(`patch artifact ${action.artifact} was not found under plans/`);
+  }
+
+  if (plan.actions.some((a) => a.type === "publish_post")) {
+    const { problems } = await resolvePublishDrafts(plan.actions, deps.drafts);
+    if (problems.size > 0) throw new PlanInputError("a post is not ready to publish", [...problems].map(([id, message]) => ({ path: id, message })));
   }
 
   const existing = deps.repo.byId(plan.plan_id);

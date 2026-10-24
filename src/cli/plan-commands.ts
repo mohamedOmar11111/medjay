@@ -244,7 +244,7 @@ export function registerPlanCommands(program: Command): void {
         try {
           const n = planNumber(number);
           const plan = await readPlanFile(ctx.deps.dir, ctx.deps.repo.require(n));
-          const v = await validateExport({ dir: ctx.deps.dir, plan });
+          const v = await validateExport({ dir: ctx.deps.dir, plan, ...(ctx.deps.drafts ? { drafts: ctx.deps.drafts } : {}) });
           process.stdout.write(`plan #${n}: export ${v.ok ? "VALID" : "INVALID"} (checked ${v.checked.join(", ") || "nothing"})\n`);
           for (const i of v.issues) process.stdout.write(`  ${i.file}${i.row ? ` row ${i.row}` : ""}: ${i.message}\n`);
           if (v.ok) process.stdout.write("Medjay checks its own reading of the formats; try the Editor file in a test account before using it on a live one.\n");

@@ -62,7 +62,7 @@ export async function strikePlan(deps: PlanDeps, number: number, options: { acto
 
   let run;
   try {
-    run = await exportPlan({ dir: deps.dir, plan, pending, now: deps.now() });
+    run = await exportPlan({ dir: deps.dir, plan, pending, now: deps.now(), ...(deps.drafts ? { drafts: deps.drafts } : {}) });
   } catch (error) {
     deps.repo.transition(number, "failed", deps.now());
     await deps.ledger.append({ actor: options.actor, event: "plan.failed", payload: { number, plan_id: plan.plan_id, error: error instanceof Error ? error.message : String(error) } });
@@ -70,7 +70,7 @@ export async function strikePlan(deps: PlanDeps, number: number, options: { acto
   }
 
   // The files are checked before anything is called exported: an action whose file is wrong is failed.
-  const validation = await validateExport({ dir: deps.dir, plan });
+  const validation = await validateExport({ dir: deps.dir, plan, ...(deps.drafts ? { drafts: deps.drafts } : {}) });
   for (const issue of validation.issues) {
     for (const id of issue.action_ids) {
       const at = run.outcomes.findIndex((o) => o.action_id === id && o.status === "exported");
