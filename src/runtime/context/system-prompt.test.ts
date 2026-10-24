@@ -94,3 +94,15 @@ describe("buildSystemPrompt with skills", () => {
     expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["read_file"] })).not.toMatch(/skill_search/);
   });
 });
+
+describe("buildSystemPrompt with drafts", () => {
+  it("tells the agent to keep finished work as drafts, that customer-facing ones are checked, and that nothing is sent by saving", () => {
+    const text = buildSystemPrompt({ ...base, surface: "internal", tools: ["draft_save", "draft_read"] });
+    expect(text).toMatch(/draft_save/);
+    expect(text).toMatch(/checked/);
+    expect(text).toMatch(/sends nothing and publishes nothing/);
+  });
+  it("says nothing about drafts when the tool is missing", () => {
+    expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["read_file"] })).not.toMatch(/draft_save/);
+  });
+});

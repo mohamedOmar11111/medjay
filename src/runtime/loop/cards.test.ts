@@ -62,3 +62,16 @@ describe("cardFor the skill tools", () => {
     expect(cardFor("skill_load", {}, { name: "x", source: "market", trust: "third_party" }, true).summary).toBe("x (market, from another author)");
   });
 });
+
+describe("cardFor the draft tools", () => {
+  it("save: which draft, which version, and the copy check", () => {
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 2, check: { status: "pass" } }, true)).toEqual({ label: "Draft saved", summary: "email/umrah v2 · copy check: pass" });
+    expect(cardFor("draft_save", {}, { workflow: "email", slug: "umrah", version: 3, check: { status: "fail", errors: 2 } }, true).summary).toBe("email/umrah v3 · copy check: fail (2 errors)");
+  });
+  it("read, list and diff", () => {
+    expect(cardFor("draft_read", {}, { workflow: "email", slug: "umrah", version: 2, intact: true }, true)).toEqual({ label: "Draft read", summary: "email/umrah v2" });
+    expect(cardFor("draft_read", {}, { workflow: "email", slug: "umrah", version: 2, intact: false }, true).summary).toBe("email/umrah v2 · changed outside Medjay");
+    expect(cardFor("draft_list", {}, { drafts: [{}, {}] }, true)).toEqual({ label: "Drafts", summary: "2 drafts" });
+    expect(cardFor("draft_diff", {}, { workflow: "email", slug: "umrah", from: 1, to: 2, added: 3, removed: 1 }, true)).toEqual({ label: "Draft changes", summary: "email/umrah v1 to v2 · +3 -1 lines" });
+  });
+});

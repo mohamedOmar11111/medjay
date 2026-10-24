@@ -16,6 +16,10 @@ const LABELS: Record<string, string> = {
   growth_simulate: "Simulation",
   skill_search: "Skill search",
   skill_load: "Skill",
+  draft_save: "Draft saved",
+  draft_read: "Draft read",
+  draft_list: "Drafts",
+  draft_diff: "Draft changes",
 };
 
 const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
@@ -89,6 +93,17 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
     }
     case "skill_load":
       return { label, summary: `${String(out.name ?? "skill")} (${String(out.source ?? "?")}, ${out.trust === "owned" ? "yours" : "from another author"})` };
+    case "draft_save": {
+      const check = rec(out.check);
+      const errors = num(check.errors);
+      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.version)} · copy check: ${String(check.status ?? "?")}${check.status === "fail" && errors > 0 ? ` (${plural(errors, "error")})` : ""}` };
+    }
+    case "draft_read":
+      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.version)}${out.intact === false ? " · changed outside Medjay" : ""}` };
+    case "draft_list":
+      return { label, summary: plural(Array.isArray(out.drafts) ? out.drafts.length : 0, "draft") };
+    case "draft_diff":
+      return { label, summary: `${String(out.workflow)}/${String(out.slug)} v${num(out.from)} to v${num(out.to)} · +${num(out.added)} -${num(out.removed)} lines` };
     default:
       return { label, summary: "done" };
   }
