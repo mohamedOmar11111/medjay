@@ -141,3 +141,23 @@ describe("openRun gives skills the client's files", () => {
     opened.close();
   });
 });
+
+describe("openRun with a linked plugin", () => {
+  it("finds the plugin's skills through skill_search, and runs none of its hooks", async () => {
+    const plug = join(root, "plug");
+    await mkdir(join(plug, ".claude-plugin"), { recursive: true });
+    await writeFile(join(plug, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme" }));
+    await mkdir(join(plug, "skills", "audit"), { recursive: true });
+    await writeFile(join(plug, "skills", "audit", "SKILL.md"), "---\nname: acme-audit\ndescription: Audit a landing page.\n---\nBody.\n");
+    await mkdir(join(plug, "hooks"), { recursive: true });
+    await writeFile(join(plug, "hooks", "hooks.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "node should-never-run.js" }] }] } }));
+    const file = join(dir, "workspace.yaml");
+    const config = parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    config.plugins = { paths: [plug] };
+    await writeFile(file, stringify(config));
+    const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, home: join(root, "no-home") });
+    const found = (await opened.deps.registry.invoke({ name: "skill_search", input: { query: "audit landing page" } }, { runId: "r", step: 1, scope: opened.deps.scope })) as { ok: true; output: { matches: { name: string; source: string; trust: string }[] } };
+    expect(found.output.matches[0]).toMatchObject({ name: "acme-audit", source: "plugin:acme", trust: "third_party" });
+    opened.close();
+  });
+});

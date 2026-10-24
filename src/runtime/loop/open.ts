@@ -9,7 +9,8 @@ import { CredentialResolver } from "../../models/credentials.js";
 import { resolveSlot } from "../../models/slots.js";
 import { loadPolicy } from "../../shield/policy.js";
 import { Store } from "../../store/db.js";
-import { defaultRoots, discoverSkills } from "../../skills/discover.js";
+import { skillRootsWithPlugins } from "../../plugins/plugins.js";
+import { discoverSkills } from "../../skills/discover.js";
 import { loadStyleContext } from "../../style/context.js";
 import type { Pack } from "../../style/slop.js";
 import { loadWorkspace } from "../../workspace/load.js";
@@ -83,7 +84,7 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
     return { name: m.name, path: resolve(expand(m.path)), trust: m.trust, allow: [...(m.allow_paths ?? []), ...mapped] };
   });
   const scope = await RunScope.create({ workspaceDir: dir, workspaceId: config.workspace.id, dropzoneDir, client: config.workspace.id, mounts });
-  const discovery = await discoverSkills(defaultRoots(config, { workspaceDir: dir, home }));
+  const discovery = await discoverSkills((await skillRootsWithPlugins(config, { workspaceDir: dir, home })).roots);
   if (discovery.skills.length > 0) {
     for (const tool of skillTools(discovery, { clientFiles: (names) => resolveClientFiles(scope, config.client_docs, names) })) registry.register(tool);
   }

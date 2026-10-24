@@ -6,7 +6,8 @@ import { basename, join, resolve } from "node:path";
 import { Option, type Command } from "commander";
 import { parseDocument } from "yaml";
 import { Ledger } from "../audit/ledger.js";
-import { defaultRoots, discoverSkills, type Discovery, type SkillEntry, type SkillRoot } from "../skills/discover.js";
+import { skillRootsWithPlugins } from "../plugins/plugins.js";
+import { discoverSkills, type Discovery, type SkillEntry, type SkillRoot } from "../skills/discover.js";
 import { loadWorkspace } from "../workspace/load.js";
 import { cliActor, guarded, LEDGER_FILE, workspaceDirOrThrow } from "./util.js";
 
@@ -23,7 +24,7 @@ const same = (a: string, b: string) => resolve(expandHome(a)).toLowerCase() === 
 async function open(workspaceOption: string | undefined): Promise<{ dir: string; roots: SkillRoot[]; discovery: Discovery }> {
   const dir = await workspaceDirOrThrow(workspaceOption);
   const { config } = await loadWorkspace(dir);
-  const roots = defaultRoots(config, { workspaceDir: dir, home: homedir() });
+  const { roots } = await skillRootsWithPlugins(config, { workspaceDir: dir, home: homedir() });
   return { dir, roots, discovery: await discoverSkills(roots) };
 }
 
@@ -56,7 +57,7 @@ async function editValue<T>(dir: string, keys: string[], change: (current: T | u
 }
 
 /** Edit a list in workspace.yaml (see editValue). */
-const editList = <T>(dir: string, keys: string[], change: (current: T[]) => T[]): Promise<void> => editValue<T[]>(dir, keys, (current) => change(current ?? []));
+export const editList = <T>(dir: string, keys: string[], change: (current: T[]) => T[]): Promise<void> => editValue<T[]>(dir, keys, (current) => change(current ?? []));
 
 export function registerSkillsCommands(program: Command): void {
   const skills = program.command("skills").description("the skills Medjay can find, and where each one came from");

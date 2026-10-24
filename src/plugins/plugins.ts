@@ -6,7 +6,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseSkill } from "../skills/parse.js";
-import type { SkillRoot } from "../skills/discover.js";
+import { defaultRoots, type SkillRoot } from "../skills/discover.js";
 
 export interface McpDefinition {
   name: string;
@@ -201,4 +201,13 @@ export async function discoverPlugins(config: PluginConfig, options: { home?: st
 /** Each plugin's skills folder as a third-party skill root, so its skills are found like any others. */
 export function pluginSkillRoots(plugins: readonly PluginInfo[]): SkillRoot[] {
   return plugins.filter((p) => p.skills.count > 0).map((p) => ({ path: p.skills.dir, label: `plugin:${p.name}`, trust: "third_party" as const }));
+}
+
+/** Every place skills come from: the workspace, the user's folder, linked roots, then plugin skills. */
+export async function skillRootsWithPlugins(
+  config: PluginConfig & { skills: Parameters<typeof defaultRoots>[0]["skills"] },
+  base: { workspaceDir: string; home: string },
+): Promise<{ roots: SkillRoot[]; plugins: PluginDiscovery }> {
+  const plugins = await discoverPlugins(config, { home: base.home });
+  return { roots: [...defaultRoots(config, base), ...pluginSkillRoots(plugins.plugins)], plugins };
 }

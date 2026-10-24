@@ -23,6 +23,7 @@ import { registerShadowCommands } from "./shadow-commands.js";
 import { registerStyleCommands } from "./style-commands.js";
 import { registerRunCommands } from "./run-commands.js";
 import { registerDraftCommands } from "./draft-commands.js";
+import { registerPluginsCommands } from "./plugins-commands.js";
 import { registerMountCommands, registerSkillsCommands } from "./skills-commands.js";
 import { registerTacticCommands } from "./tactic-commands.js";
 import { registerVaultCommands } from "./vault-commands.js";
@@ -247,6 +248,7 @@ export function buildProgram(): Command {
   registerSkillsCommands(program);
   registerMountCommands(program);
   registerDraftCommands(program);
+  registerPluginsCommands(program);
   registerAnalysisCommands(program);
   registerVaultCommands(registerTacticCommands(program));
   registerMediaCommands(program);

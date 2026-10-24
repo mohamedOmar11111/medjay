@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { discoverPlugins, loadPlugin, pluginSkillRoots } from "./plugins.js";
+import { discoverPlugins, loadPlugin, pluginSkillRoots, skillRootsWithPlugins } from "./plugins.js";
 
 let root: string;
 beforeEach(async () => {
@@ -125,5 +125,21 @@ describe("pluginSkillRoots", () => {
     await mkdir(join(root, "noskills", ".claude-plugin"), { recursive: true });
     await writeFile(join(root, "noskills", ".claude-plugin", "plugin.json"), "{}");
     expect(pluginSkillRoots([(await loadPlugin(join(root, "noskills")))!])).toEqual([]);
+  });
+});
+
+describe("skillRootsWithPlugins", () => {
+  it("puts workspace, user and linked roots first and plugin skills last, and reports plugin problems", async () => {
+    const dir = join(root, "p4");
+    await plugin(dir, "linked-plugin");
+    const ws = join(root, "ws");
+    const roots = await skillRootsWithPlugins(
+      { skills: { paths: [], include_claude_global: false }, plugins: { paths: [dir, join(root, "nothing")], include: [] } },
+      { workspaceDir: ws, home: join(root, "home") },
+    );
+    expect(roots.roots.map((r) => r.label)).toEqual(["workspace", "workspace-claude", "workspace-agents", "user", "plugin:linked-plugin"]);
+    expect(roots.roots[roots.roots.length - 1]).toMatchObject({ trust: "third_party" });
+    expect(roots.plugins.plugins.map((p) => p.name)).toEqual(["linked-plugin"]);
+    expect(roots.plugins.problems).toHaveLength(1);
   });
 });
