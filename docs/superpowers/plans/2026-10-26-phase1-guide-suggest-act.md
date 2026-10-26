@@ -103,3 +103,85 @@ Files: `src/runtime/context/system-prompt.ts` (+ test).
 
 T1, T2, T3 first (small, independent, remove the dead end). T4 and T5 together (the approval path). T6, T7, T8 after.
 T9 last. Expected: about a day of focused work per two tasks.
+
+---
+
+# Phase 2 plan: live read-only connectors (after Phase 1)
+
+Spec: `docs/superpowers/specs/2026-10-26-phase2-3-connectors-design.md`. Release as v0.2.0. Same rules as above.
+Priority: Google Ads + GA4 + Search Console, then WordPress, then Meta Ads and Respond.io.
+
+## C0. Spike (decides the dependency)
+
+Build a throwaway client with `@modelcontextprotocol/sdk` against a tiny local server over stdio and over HTTP, on
+Windows and in CI (Ubuntu). Pass if: it installs and imports under ESM on Node 22.13+, lists and calls a tool,
+times out cleanly, and the install size is acceptable. Record the result in the spec. If it fails, write the small
+JSON-RPC client instead (same interface).
+
+## C1. Connector config and policy
+
+Files: `src/workspace/schema.ts`, `src/connectors/config.ts`. Tests: schema accepts the example; refuses a
+credential value in place of a name, a missing `allow_tools`, a tool name with unsafe characters, an account not
+listed, a stdio command that is a shell string; `allow_tools` is required and never defaults to "all".
+
+## C2. Connector runtime (read only)
+
+Files: `src/connectors/client.ts`, `src/connectors/registry.ts` (layer `connectors: [workspace, shared]`).
+Tests with a fake MCP server: only allowlisted tools are listed and callable; a write-style tool on the server
+is unreachable by name, by alias and by case; the account limit is enforced on arguments; environment passed to a
+child process is only the declared list; call timeout; output size cap; every call writes a ledger entry; a server
+crash returns a clear error and does not hang the run.
+
+## C3. Agent tools and trust
+
+Register allowlisted tools as `mcp_<server>_<tool>` (class `read`) in `src/runtime/loop/open.ts`. Results are
+`untrusted` (spotlighted, redacted). Tests: injection text in a result does not change tool calls in the loop
+test; cards show server, tool and row count only.
+
+## C4. Sync to the dropzone
+
+Files: `src/connectors/sync.ts`, `src/cli/connect-commands.ts`. Per-source adapters turn tool results into the
+import file formats the ingester already reads, with a sidecar `.source.json` (server, tool, account, time,
+argument fingerprint). Tests: a synced file ingests and appears in scout with the right totals; re-sync replaces
+by name and updates the data fingerprint; a changed account is refused.
+
+## C5. Guided connect
+
+Files: `src/cli/connect-commands.ts` (`mdj connect add|list|test|sync|remove`), TUI `/connect` flow, presets in
+`src/connectors/presets/`. Tests: the command and arguments are shown and need a typed yes; credentials go to the
+keychain over stdin only; a failed test read leaves nothing configured; `remove` deletes the config entry and
+the keychain entries it created. Presets are "untested" until a live run.
+
+## C6. Google Ads, GA4, Search Console presets
+
+Live check with Omar's accounts (his Google Ads MCP server). Report what works and what the server returned.
+
+## C7. WordPress preset (read)
+
+Posts, pages, media list, SEO fields. Pairs with Phase 3 `publish_post`.
+
+## C8. Meta Ads and Respond.io presets
+
+Same method. Respond.io read tools are contacts and message history only, with the customer-data redaction
+rules; no sending in Phase 2.
+
+## C9. Docs, release, live report
+
+`docs/SPEC.md`, README "Connect your accounts", version 0.2.0, dry run, Omar publishes. The live report lists, per
+preset: tested or untested, what was read, what failed.
+
+---
+
+# Phase 3 plan: acting through approved plans (after Phase 2)
+
+Spec: same document. Release as v0.3.0.
+
+- A1. Executor config and policy (`executors:` per action type, default off; precondition and rollback fields).
+- A2. Executor interface and the fake executor for tests; strike re-checks policy and hash, reads live state,
+  refuses on mismatch, performs only the allowlisted write tool, reads back, stores the inverse.
+- A3. WordPress `publish_post` as draft, then publish (two-step, post cap applies).
+- A4. Google Ads negative keywords, then pause, then budget changes (simulation gate and percentage limits apply).
+- A5. Verify and rollback through the live executor where the platform allows it.
+- A6. Live check on Omar's accounts with low-risk actions first, then the release.
+
+Phase 3 starts only after Phase 2 has run for real accounts without a Shield bypass found in review.
