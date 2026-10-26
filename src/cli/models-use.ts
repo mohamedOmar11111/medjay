@@ -13,7 +13,7 @@ import { guarded, workspaceDirOrThrow } from "./util.js";
 /** Cloud providers with a model Medjay is known to work with. Others need --model. */
 const CLOUD_PROVIDERS = ["anthropic", "openai", "google"] as const;
 type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
-const DEFAULT_MODELS: Partial<Record<CloudProvider, string>> = { anthropic: "claude-sonnet-5-5", openai: "gpt-5.4-mini" };
+const DEFAULT_MODELS: Record<CloudProvider, string> = { anthropic: "claude-sonnet-5-5", openai: "gpt-5.4-mini", google: "gemini-2.5-flash" };
 const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
 export interface UseProviderOptions {
@@ -41,17 +41,10 @@ async function useAuto(options: UseProviderOptions): Promise<UseProviderResult> 
     const found = await resolver.resolve({ keychainRef: target.keychainRef, envFallback: target.envFallback });
     if (found.source !== "none") return { changed: false, note: `the workspace already has a working key for ${target.provider}; left as it was` };
   }
-  const skipped: string[] = [];
   for (const candidate of AUTO_ORDER) {
     const found = await resolver.resolve(defaultRef(candidate));
-    if (found.source === "none") continue;
-    if (DEFAULT_MODELS[candidate] === undefined) {
-      skipped.push(candidate);
-      continue;
-    }
-    return useProvider({ ...options, provider: candidate, onlyIfNoKey: false });
+    if (found.source !== "none") return useProvider({ ...options, provider: candidate, onlyIfNoKey: false });
   }
-  if (skipped.length > 0) return { changed: false, note: `a ${skipped.join(", ")} key is stored but there is no built-in default model for it: run \`mdj models use ${skipped[0]} --model <model-id>\`` };
   return { changed: false, note: "no AI model key is stored yet: type /connect (or run mdj auth set <provider>)" };
 }
 
@@ -62,11 +55,6 @@ export async function useProvider(options: UseProviderOptions): Promise<UseProvi
   const cloud = provider as CloudProvider;
   const model = options.model ?? DEFAULT_MODELS[cloud];
   if (options.model !== undefined && !MODEL_NAME.test(options.model)) throw new Error("that is not a model name (letters, digits, . _ : - only)");
-  if (model === undefined) {
-    const needs = `${cloud} has no built-in default model: run \`mdj models use ${cloud} --model <model-id>\``;
-    if (options.onlyIfNoKey) return { changed: false, note: needs };
-    throw new Error(needs.replace("has no", "needs --model: it has no"));
-  }
 
   const { config } = await loadWorkspace(options.dir);
   const targets = SLOT_NAMES.flatMap((slot) => resolveSlot(config.models, slot));
@@ -97,8 +85,8 @@ export async function useProvider(options: UseProviderOptions): Promise<UseProvi
 export function registerModelsUse(models: Command): void {
   models
     .command("use <provider>")
-    .description("point all model slots at one provider: anthropic, openai or google (google needs --model); `auto` picks the provider whose key is stored")
-    .option("--model <id>", "the model to use (default: a known-good one for anthropic and openai)")
+    .description("point all model slots at one provider: anthropic, openai or google; `auto` picks the provider whose key is stored")
+    .option("--model <id>", "the model to use (default: claude-sonnet-5-5, gpt-5.4-mini or gemini-2.5-flash)")
     .option("--only-if-no-key", "change nothing if the workspace already has a working key for a model it uses")
     .option("--workspace <dir>", "workspace folder")
     .action((provider: string, opts: { model?: string; onlyIfNoKey?: boolean; workspace?: string }) =>

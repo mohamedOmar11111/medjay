@@ -43,10 +43,13 @@ describe("mdj models use", () => {
     expect([...before.matchAll(/^\s*#.*$/gm)].length).toBe([...after.matchAll(/^\s*#.*$/gm)].length);
   });
 
-  it("uses the model it is given, and a provider with no built-in default needs one", async () => {
+  it("uses the model it is given, and every cloud provider has a default when none is given", async () => {
     await useProvider({ dir, provider: "google", model: "gemini-test", resolver: resolverWith() });
     expect(await slots()).toEqual(["google/gemini-test", "google/gemini-test", "google/gemini-test"]);
-    await expect(useProvider({ dir, provider: "google", resolver: resolverWith() })).rejects.toThrow(/--model/);
+    await useProvider({ dir, provider: "google", resolver: resolverWith() });
+    expect(await slots()).toEqual(["google/gemini-2.5-flash", "google/gemini-2.5-flash", "google/gemini-2.5-flash"]);
+    await useProvider({ dir, provider: "anthropic", resolver: resolverWith() });
+    expect((await slots())[0]).toBe("anthropic/claude-sonnet-5-5");
   });
 
   it("refuses a provider that is not a cloud provider, or a model name that is not plain", async () => {
@@ -69,10 +72,10 @@ describe("mdj models use", () => {
       expect((await slots())[0]).toBe("anthropic/claude-sonnet-5-5");
     });
 
-    it("does nothing, and says why, when the provider has no default model", async () => {
+    it("switches to google, with its default model, when google is the only key", async () => {
       const result = await useProvider({ dir, provider: "google", onlyIfNoKey: true, resolver: resolverWith("google") });
-      expect(result.changed).toBe(false);
-      expect(result.note).toMatch(/mdj models use google --model/);
+      expect(result.changed).toBe(true);
+      expect((await slots())[0]).toBe("google/gemini-2.5-flash");
     });
 
     it("does nothing when the slots already use that provider", async () => {
@@ -99,11 +102,10 @@ describe("mdj models use auto (what setup runs: pick the provider whose key is a
     expect(result.changed).toBe(false);
     expect(result.note).toMatch(/\/connect/);
   });
-  it("skips a provider it has no default model for, and names it", async () => {
+  it("uses google when a google key is the only one stored", async () => {
     const result = await useProvider({ dir, provider: "auto", resolver: resolverWith("google") });
-    expect(result.changed).toBe(false);
-    expect(result.note).toMatch(/google/);
-    expect(result.note).toMatch(/--model/);
+    expect(result.changed).toBe(true);
+    expect((await slots())[0]).toBe("google/gemini-2.5-flash");
   });
   it("prefers anthropic, then openai, when several keys exist and the workspace's own has none", async () => {
     await useProvider({ dir, provider: "openai", resolver: resolverWith() }); // now on openai, but only google and anthropic keys exist
