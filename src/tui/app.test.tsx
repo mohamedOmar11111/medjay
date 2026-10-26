@@ -209,9 +209,13 @@ describe("/connect", () => {
     expect(t.calls[0]!.stdin).toBe(KEY);
     t.calls[0]!.finish(0);
     await wait(60);
-    // the workspace starts on Anthropic: switch it to this provider, but only if nothing it uses has a key
-    expect(t.calls[1]!.argv).toEqual(["models", "use", "openai", "--only-if-no-key", "--workspace", "/work/etl"]);
+    // connecting a provider on purpose means "use it": the workspace is pointed at it, and the person is told
+    expect(t.calls[1]!.argv).toEqual(["models", "use", "openai", "--workspace", "/work/etl"]);
+    t.calls[1]!.emit("all model slots now use openai/gpt-5.4-mini\n");
     t.calls[1]!.finish(0);
+    await wait(60);
+    expect(t.frame()).toContain("all model slots now use openai/gpt-5.4-mini");
+    expect(t.frame()).toContain("mdj models use");
     await wait(60);
     expect(t.calls[2]!.argv).toEqual(["run", "--workspace", "/work/etl", "--", "Reply with the single word OK."]);
     t.calls[2]!.emit("OK\n");

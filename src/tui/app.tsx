@@ -309,10 +309,13 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
           setBusy(null);
           return void add("info", pick(lang)("Key stored. Once a workspace is set up, ask me something to test it.", "انحفظ المفتاح. بعد ما تجهز مساحة العمل اسألني أي شي لتجربته."));
         }
-        // A workspace starts on Anthropic. If this key is for another provider and nothing the workspace
-        // uses has a key yet, point it at the provider just connected. A failure here does not stop the test.
-        const switched = SWITCHABLE.includes(provider) ? tracked(["models", "use", provider, "--only-if-no-key", "--workspace", dir], () => undefined).done : Promise.resolve({ code: 0 });
-        void switched.then(() => {
+        // Connecting a provider on purpose means the person wants to use it, so the workspace is pointed at it
+        // (a stored key for another provider, which may be out of credit, must not keep winning). Say which model
+        // is now in use and how to change it. A failure here does not stop the test of the key.
+        let switchedTo = "";
+        const switched = SWITCHABLE.includes(provider) ? tracked(["models", "use", provider, "--workspace", dir], (chunk, stream) => void (stream === "out" && (switchedTo += chunk))).done : Promise.resolve({ code: 0 });
+        void switched.then(({ code: switchCode }) => {
+          if (switchCode === 0 && switchedTo.trim() !== "") add("info", `${switchedTo.trim()}. ${pick(lang)("To change it: mdj models use <anthropic|openai|google>", "لتغييره: mdj models use <anthropic|openai|google>")}`);
           setBusy(pick(lang)("testing the key", "أجرّب المفتاح"));
           let out = "";
           void tracked(["run", "--workspace", dir, "--", PROBE_TASK], (chunk) => void (out += chunk)).done.then(({ code: probe }) => {
