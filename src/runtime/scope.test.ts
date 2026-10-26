@@ -283,7 +283,8 @@ describe("RunScope mounts limited to allowed folders (one client's part of a sha
     expect(() => scope.assertAllowed("hq:01_Active_Clients/etlaala/icp.md")).not.toThrow();
   });
 
-  it("compares folder names without caring about upper and lower case, as Windows does", async () => {
+  // a case-sensitive file system (Linux) cannot find ETLAALA when the folder is called Etlaala, so this checks Windows and macOS only
+  it.skipIf(process.platform !== "win32" && process.platform !== "darwin")("compares folder names without caring about upper and lower case, as Windows does", async () => {
     const { scope } = await hq(ALLOW, "w2");
     expect((await scope.readText("hq:01_active_clients/ETLAALA/icp.md")).text).toBe("etlaala icp");
   });
