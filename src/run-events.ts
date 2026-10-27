@@ -23,6 +23,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     summary: z.string(),
     error_kind: z.string().optional(),
   }),
+  // A tool needs a person's OK before it can run. `diff` is what would change, as "+ " and "- " lines.
+  z.object({ type: z.literal("permission.requested"), call_id: z.string(), tool: z.string(), summary: z.string(), diff: z.string().optional() }),
   z.object({
     type: z.literal("run.finished"),
     status: z.string(),

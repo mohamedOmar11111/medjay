@@ -32,6 +32,12 @@ export interface ToolContext {
   now: () => Date;
 }
 
+export interface ToolPreview {
+  summary: string;
+  /** Changed lines marked "+ " and "- ". */
+  diff?: string;
+}
+
 export interface ToolDef<S extends z.ZodType = z.ZodType, O = unknown> {
   name: string;
   description: string;
@@ -43,6 +49,11 @@ export interface ToolDef<S extends z.ZodType = z.ZodType, O = unknown> {
   /** Resources for policy rules (for example "meta:adset/123"), besides tool:<name> and client:<name>. */
   resources?: (input: z.infer<S>) => string[];
   execute: (input: z.infer<S>, ctx: ToolContext) => Promise<O>;
+  /**
+   * What the call would change, shown to the person who is asked to allow it. Must not change anything.
+   * Throwing means the call could not succeed as written; the model is told, and nobody is asked.
+   */
+  preview?: (input: z.infer<S>) => Promise<ToolPreview>;
   /** Whether the OUTPUT may carry instructions from outside. Default: untrusted (fail closed). */
   trustOf?: (input: z.infer<S>, output: O, ctx: ToolContext) => Trust;
   timeoutMs?: number;
@@ -119,6 +130,20 @@ export class ToolRegistry {
     return [...this.tools.values()]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((t) => ({ name: t.name, description: t.description, class: t.class, input_schema: z.toJSONSchema(t.input) }));
+  }
+
+  /** What a call would do, for the person asked to allow it. Changes nothing and is not logged. */
+  async preview(call: { name: string; input: unknown }): Promise<{ ok: true; preview: ToolPreview } | { ok: false; message: string }> {
+    const tool = this.tools.get(call.name);
+    if (!tool) return { ok: false, message: `no tool named "${call.name}"` };
+    const parsed = tool.input.safeParse(call.input);
+    if (!parsed.success) return { ok: false, message: parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".") || "(input)"}: ${i.message}`).join("; ") };
+    if (!tool.preview) return { ok: true, preview: { summary: `${tool.class}.${tool.name}` } };
+    try {
+      return { ok: true, preview: await tool.preview(parsed.data) };
+    } catch (error) {
+      return { ok: false, message: short(error instanceof Error ? error.message : String(error)) };
+    }
   }
 
   async invoke(call: { name: string; input: unknown }, run: RunContext): Promise<ToolOutcome> {

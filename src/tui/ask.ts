@@ -30,9 +30,25 @@ export interface AskContext {
   onEvent?: (event: RunEvent) => void;
 }
 
+/** A change the agent wants to make that waits for the owner's OK (only a context-file update is offered here). */
+export interface PermissionRequest {
+  runId: string;
+  callId: string;
+  tool: string;
+  summary: string;
+  diff?: string;
+}
+
+/** The only waiting tool the terminal app lets the owner allow. Plans are approved with `mdj approve`, typed. */
+const PROMPTABLE_TOOLS: readonly string[] = ["context_update"];
+const RUN_ID = /^run_[a-z0-9]{1,32}$/;
+const CALL_ID = /^c\d{1,4}_\d{1,4}$/;
+
 export interface Reply {
   text: string;
   suggestions: Suggestion[];
+  /** Set when the agent is waiting for the owner to allow or decline one change. */
+  permission?: PermissionRequest;
   /** Set when the answer is really a model-connection problem, so a caller can fall back. */
   modelFailure?: ModelFailure;
 }
@@ -124,7 +140,17 @@ const TASK_PREFIX: Record<Language, string> = {
 
 /** Hand an open question to the agent. Progress arrives as events while it works; the answer is the final event. */
 export async function askAgent(text: string, ctx: AskContext, tone: "task" | "chat" = "task"): Promise<Reply> {
-  const state: { finished: Extract<RunEvent, { type: "run.finished" }> | null; runId: string | null; stray: string; err: string } = { finished: null, runId: null, stray: "", err: "" };
+  return driveAgent(["run", "--events", "--workspace", ctx.workspaceDir, "--", `${(tone === "chat" ? CHAT_PREFIX : TASK_PREFIX)[ctx.lang]}${text}`], ctx);
+}
+
+/** The owner's answer to a waiting change: allow that one call once, or decline it. The agent carries on either way. */
+export async function resumeAgent(request: PermissionRequest, choice: "allow" | "deny", ctx: AskContext): Promise<Reply> {
+  if (!RUN_ID.test(request.runId) || !CALL_ID.test(request.callId)) throw new Error("not a valid run or call id");
+  return driveAgent(["resume", request.runId, "--events", "--workspace", ctx.workspaceDir, choice === "allow" ? "--approve-tool" : "--deny-tool", request.callId], ctx);
+}
+
+async function driveAgent(argv: string[], ctx: AskContext): Promise<Reply> {
+  const state: { finished: Extract<RunEvent, { type: "run.finished" }> | null; runId: string | null; asked: Extract<RunEvent, { type: "permission.requested" }> | null; stray: string; err: string } = { finished: null, runId: null, asked: null, stray: "", err: "" };
   const split = lineSplitter((line) => {
     const event = parseEventLine(line);
     if (event === null) {
@@ -133,13 +159,14 @@ export async function askAgent(text: string, ctx: AskContext, tone: "task" | "ch
     }
     if (event.type === "run.finished") state.finished = event;
     if (event.type === "run.started") state.runId = event.run_id;
+    if (event.type === "permission.requested") state.asked = event;
     try {
       ctx.onEvent?.(event);
     } catch {
       // a bug in the live view must not lose the answer
     }
   });
-  const { code } = await ctx.runner(["run", "--events", "--workspace", ctx.workspaceDir, "--", `${(tone === "chat" ? CHAT_PREFIX : TASK_PREFIX)[ctx.lang]}${text}`], (chunk, stream) => (stream === "out" ? split.push(chunk) : void (state.err += chunk))).done;
+  const { code } = await ctx.runner(argv, (chunk, stream) => (stream === "out" ? split.push(chunk) : void (state.err += chunk))).done;
   split.end();
   const lang = ctx.lang;
   const fin = state.finished;
@@ -155,6 +182,11 @@ export async function askAgent(text: string, ctx: AskContext, tone: "task" | "ch
     return failure ? { ...reply(modelErrorAnswer(failure, lang), lang), modelFailure: failure } : reply(errorAnswer(lang, fin.error.message), lang);
   }
   const suggestions = helpAnswer(lang, false).next.slice(0, 4);
+  const asked = state.asked;
+  if (fin.status === "needs_human" && fin.pending && state.runId !== null && asked !== null && asked.call_id === fin.pending.call_id && PROMPTABLE_TOOLS.includes(fin.pending.tool)) {
+    const permission: PermissionRequest = { runId: state.runId, callId: fin.pending.call_id, tool: fin.pending.tool, summary: asked.summary, ...(asked.diff === undefined ? {} : { diff: asked.diff }) };
+    return { text: fin.final_text.trim(), suggestions: [], permission };
+  }
   if (fin.status !== "completed") {
     const resume = state.runId ? ` mdj resume ${state.runId}` : "";
     const head = lang === "ar" ? "اضطريت أوقف قبل ما أخلص." : "I had to stop before I finished.";

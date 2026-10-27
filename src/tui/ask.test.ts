@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { diagnose } from "../analysis/diagnose.js";
 import { scout } from "../analysis/scout.js";
 import { FIXTURE_NOW, setupIngest, type IngestHarness } from "../../test/helpers/ingest.js";
-import { answerIntent, askAgent, type AskContext } from "./ask.js";
+import { answerIntent, askAgent, resumeAgent, type AskContext } from "./ask.js";
 import { emptyDashboard } from "./dashboard.js";
 import type { Runner } from "./runner.js";
 import { encodeEvent, type RunEvent } from "../run-events.js";
@@ -196,5 +196,57 @@ describe("askAgent", () => {
     const { ctx, calls } = ctxWith(() => ({ out: stream(finished({ final_text: "تمام" })) }), "ar");
     await askAgent("اكتب لي عناوين", ctx);
     expect(calls[0]![5]).toMatch(/^أجب بالعربية/);
+  });
+});
+
+describe("a change that needs the owner's OK", () => {
+  const finished = (over: Partial<Extract<RunEvent, { type: "run.finished" }>> = {}): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 10, output: 5 }, cost_usd: 0.001, cost_known: true, final_text: "", proposals: 0, ...over });
+  const stream = (...events: RunEvent[]) => events.map(encodeEvent).join("");
+  const asking = (tool = "context_update"): string =>
+    stream(
+      { type: "run.started", run_id: "run_9", slot: "reasoning" },
+      { type: "permission.requested", call_id: "c1_1", tool, summary: "offer-matrix: +2 / -0 lines (owner gave the offers)", diff: "+ Umrah 7 nights, 4200 SAR." },
+      finished({ status: "needs_human", final_text: "I can save your offers.", pending: { call_id: "c1_1", tool } }),
+    );
+
+  it("hands the question back with what would change, instead of telling the owner to go to a terminal", async () => {
+    const { ctx } = ctxWith(() => ({ out: asking(), code: 2 }));
+    const r = await askAgent("save my offers", ctx);
+    expect(r.permission).toEqual({ runId: "run_9", callId: "c1_1", tool: "context_update", summary: "offer-matrix: +2 / -0 lines (owner gave the offers)", diff: "+ Umrah 7 nights, 4200 SAR." });
+    expect(r.text).toContain("I can save your offers.");
+    expect(r.text).not.toContain("mdj resume");
+  });
+
+  it("offers the prompt only for a context change: any other waiting tool keeps the terminal instruction", async () => {
+    for (const tool of ["read_file", "propose_plan_actions", "strike_plan", "approve_plan"]) {
+      const { ctx } = ctxWith(() => ({ out: asking(tool), code: 2 }));
+      const r = await askAgent("do it", ctx);
+      expect(r.permission, tool).toBeUndefined();
+      expect(r.text, tool).toContain("mdj resume run_9");
+    }
+  });
+
+  it("resumeAgent allows exactly the waiting call once, or declines it, and answers with the run's next words", async () => {
+    const seen: string[][] = [];
+    const runner: Runner = (argv, onChunk) => {
+      seen.push(argv);
+      onChunk(stream(finished({ final_text: "Saved your offers." })), "out");
+      return { done: Promise.resolve({ code: 0 }), cancel: () => undefined };
+    };
+    const { ctx } = ctxWith(() => ({}));
+    const permission = { runId: "run_9", callId: "c1_1", tool: "context_update", summary: "s" };
+    const allowed = await resumeAgent(permission, "allow", { ...ctx, runner });
+    expect(seen[0]).toEqual(["resume", "run_9", "--events", "--workspace", "/ws", "--approve-tool", "c1_1"]);
+    expect(allowed.text).toContain("Saved your offers.");
+    await resumeAgent(permission, "deny", { ...ctx, runner });
+    expect(seen[1]).toEqual(["resume", "run_9", "--events", "--workspace", "/ws", "--deny-tool", "c1_1"]);
+  });
+
+  it("refuses to build a command from an id that does not look like one of ours", async () => {
+    const { ctx, calls } = ctxWith(() => ({}));
+    for (const bad of [{ runId: "run_9; rm -rf", callId: "c1_1" }, { runId: "run_9", callId: "--approve-tool" }, { runId: "../x", callId: "c1_1" }]) {
+      await expect(resumeAgent({ ...bad, tool: "context_update", summary: "s" }, "allow", ctx)).rejects.toThrow(/id/);
+    }
+    expect(calls).toEqual([]);
   });
 });

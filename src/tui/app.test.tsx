@@ -329,6 +329,103 @@ describe("live step cards", () => {
   });
 });
 
+describe("the owner's OK for a change", () => {
+  const ev = (e: RunEvent) => encodeEvent(e);
+  const ASK: RunEvent[] = [
+    { type: "run.started", run_id: "run_7", slot: "reasoning" },
+    { type: "permission.requested", call_id: "c1_1", tool: "context_update", summary: "offer-matrix: +2 / -0 lines (owner gave the offers)", diff: "+ Umrah 7 nights, 4200 SAR." },
+    { type: "run.finished", status: "needs_human", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "I can save your offers.", proposals: 0, pending: { call_id: "c1_1", tool: "context_update" } },
+  ];
+  const DONE: RunEvent = { type: "run.finished", status: "completed", steps: 2, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "Saved your offers.", proposals: 0 };
+
+  async function waiting(over: Partial<AppProps> = {}, question = "remember my offer: Umrah 7 nights for 4200 SAR") {
+    const t = mount(over);
+    await t.send(question);
+    for (const e of ASK) t.calls[0]!.emit(ev(e));
+    t.calls[0]!.finish(2);
+    await wait(150);
+    return t;
+  }
+
+  it("shows what would change and asks [A]llow once / [D]eny, with the letters in ASCII", async () => {
+    const t = await waiting();
+    const f = t.frame();
+    expect(f).toContain("offer-matrix: +2 / -0 lines");
+    expect(f).toContain("+ Umrah 7 nights, 4200 SAR.");
+    expect(f).toContain("[A]llow once");
+    expect(f).toContain("[D]eny");
+    expect(f).not.toContain("mdj resume");
+    t.unmount();
+  });
+
+  it("keeps typing out of the prompt while it waits", async () => {
+    const t = await waiting();
+    await t.type("zzz");
+    expect(t.frame()).not.toContain("❯ zzz");
+    expect(t.calls).toHaveLength(1);
+    t.unmount();
+  });
+
+  it("A allows exactly that call once through the CLI, and the agent's next words appear", async () => {
+    const t = await waiting();
+    await t.type("a");
+    expect(t.calls[1]!.argv).toEqual(["resume", "run_7", "--events", "--workspace", "/work/etl", "--approve-tool", "c1_1"]);
+    t.calls[1]!.emit(ev({ type: "run.started", run_id: "run_7", slot: "reasoning" }));
+    t.calls[1]!.emit(ev(DONE));
+    t.calls[1]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("Saved your offers.");
+    await t.type("a"); // nothing is waiting any more: the letter goes to the prompt
+    expect(t.calls).toHaveLength(2);
+    t.unmount();
+  });
+
+  it("D declines it, and the agent is told", async () => {
+    const t = await waiting();
+    await t.type("d");
+    expect(t.calls[1]!.argv.slice(-2)).toEqual(["--deny-tool", "c1_1"]);
+    t.calls[1]!.emit(ev({ ...DONE, final_text: "Okay, I won't save that." }));
+    t.calls[1]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("Okay, I won't save that.");
+    t.unmount();
+  });
+
+  it("Esc counts as declining", async () => {
+    const t = await waiting();
+    await t.type("\u001B");
+    await wait(80);
+    expect(t.calls[1]!.argv.slice(-2)).toEqual(["--deny-tool", "c1_1"]);
+    t.unmount();
+  });
+
+  it("no answer in time declines it, and says so", async () => {
+    const t = await waiting({ permissionTimeoutMs: 120 });
+    await wait(300);
+    expect(t.calls[1]!.argv.slice(-2)).toEqual(["--deny-tool", "c1_1"]);
+    expect(t.frame()).toMatch(/No answer, so I declined/);
+    t.unmount();
+  });
+
+  it("does not time out once the owner has answered", async () => {
+    const t = await waiting({ permissionTimeoutMs: 200 });
+    await t.type("a");
+    await wait(400);
+    expect(t.calls).toHaveLength(2);
+    expect(t.calls[1]!.argv).toContain("--approve-tool");
+    t.unmount();
+  });
+
+  it("in Arabic the explanation is Arabic and the keys stay A and D", async () => {
+    const t = await waiting({}, "تذكر عرضي: عمرة 7 ليالي بـ 4200 ريال");
+    const f = t.frame();
+    expect(f).toContain("[A]");
+    expect(f).toContain("[D]");
+    expect(f).toMatch(/[؀-ۿ]/);
+    t.unmount();
+  });
+});
+
 describe("greetings go to the model", () => {
   const ev = (e: RunEvent) => encodeEvent(e);
   const FIN = (over: Partial<Extract<RunEvent, { type: "run.finished" }>>): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "", proposals: 0, ...over });

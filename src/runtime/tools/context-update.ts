@@ -14,6 +14,10 @@ export function contextTools(store: ContextStore): ToolDef[] {
     input: z.object({ file: z.enum(CONTEXT_FILES), text: z.string().min(1).max(MAX_CONTEXT_BYTES), reason: z.string().min(1).max(300) }).strict(),
     paths: ({ file }) => [`context/${file}.md`],
     resources: ({ file }) => [`context:${file}`],
+    preview: async ({ file, text, reason }) => {
+      const p = await store.propose(file, text);
+      return { summary: `${file}: ${p.changed ? `+${p.diff.added} / -${p.diff.removed} lines` : "no change"} (${reason})`, diff: p.diff.text };
+    },
     execute: async ({ file, text, reason }, ctx) => {
       const r = await store.apply(file, text, { author: `agent:${ctx.runId}`, reason });
       return {

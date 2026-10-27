@@ -53,6 +53,14 @@ describe("mdj run --events", () => {
     expect(r.code).toBe(1);
   });
 
+  it("mdj resume can decline a waiting call: --deny-tool exists, and allowing and declining together is refused", async () => {
+    const help = await mdj("resume", "--help");
+    expect(help.stdout).toContain("--deny-tool <call_id>");
+    const both = await mdj("resume", "run_nope", "--approve-tool", "c1_1", "--deny-tool", "c1_1", "--workspace", ws);
+    expect(both.code).not.toBe(0);
+    expect(`${both.stdout}${both.stderr}`).toMatch(/allowed or declined, not both|no run run_nope/);
+  });
+
   it("without the flag the output is the human summary, not JSON", async () => {
     const r = await mdj("run", "--workspace", ws, "--", "hello");
     expect(r.stdout).toMatch(/run run_[0-9a-f]+: failed/);

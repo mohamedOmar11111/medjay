@@ -41,7 +41,7 @@ function printResult(result: RunResult): void {
   out.write(`\nrun ${result.runId}: ${result.status} after ${result.steps} step(s), ${result.tokens.input + result.tokens.output} tokens, ${usd(result.costUsd, result.costKnown)}\n`);
   if (result.proposals.length > 0) out.write(`${result.proposals.length} proposal(s) ready: \`mdj runs proposals ${result.runId}\`\n`);
   if (result.status === "needs_human" && result.pending) {
-    out.write(`waiting for a human: ${result.pending.tool} (${result.pending.callId}). Allow it in shield.policy.yaml, or: mdj resume ${result.runId} --approve-tool ${result.pending.callId}\n`);
+    out.write(`waiting for a human: ${result.pending.tool} (${result.pending.callId}). Allow it once: mdj resume ${result.runId} --approve-tool ${result.pending.callId}   or decline it: mdj resume ${result.runId} --deny-tool ${result.pending.callId}\n`);
   } else if (result.status === "aborted" || result.status === "failed") {
     out.write(`${result.error ? `${result.error.kind}: ${result.error.message}\n` : ""}continue with: mdj resume ${result.runId}\n`);
   } else if (result.status.startsWith("max_")) {
@@ -92,9 +92,10 @@ export function registerRunCommands(program: Command): void {
     .command("resume <run_id>")
     .description("continue an interrupted, failed or waiting run from its last saved step (finished steps are never re-run or re-billed)")
     .option("--approve-tool <call_id>", "approve exactly this pending call, once")
+    .option("--deny-tool <call_id>", "decline exactly this pending call: it is not run and the agent is told")
     .option("--events", "write live progress as one JSON object per line on stdout (used by the terminal app)")
     .option("--workspace <dir>", "workspace folder")
-    .action((runId: string, opts: { approveTool?: string; events?: boolean; workspace?: string }) =>
+    .action((runId: string, opts: { approveTool?: string; denyTool?: string; events?: boolean; workspace?: string }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
         const probe = await openRun({ dir, slot: "reasoning", actor: cliActor(), driver: NO_MODEL });
@@ -103,7 +104,7 @@ export function registerRunCommands(program: Command): void {
         const opened = await openRun({ dir, slot, actor: cliActor(), growth: createGrowthPort(dir) });
         const interrupt = abortOnInterrupt();
         try {
-          const result = await resumeRun(withEvents(opened.deps, opts.events), runId, opts.approveTool ? { approveTool: opts.approveTool } : {}, interrupt.signal);
+          const result = await resumeRun(withEvents(opened.deps, opts.events), runId, { ...(opts.approveTool ? { approveTool: opts.approveTool } : {}), ...(opts.denyTool ? { denyTool: opts.denyTool } : {}) }, interrupt.signal);
           if (!opts.events) printResult(result);
           return EXIT[result.status];
         } finally {

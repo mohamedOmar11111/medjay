@@ -11,6 +11,8 @@ export class ResumeError extends Error {}
 export interface ResumeOptions {
   /** A human approves exactly this pending call, once. */
   approveTool?: string;
+  /** A human declines exactly this pending call: it is not run and the model is told. */
+  denyTool?: string;
 }
 
 const FINISHED = ["completed", "max_steps_reached", "max_tokens_reached", "max_cost_reached"];
@@ -24,8 +26,10 @@ export async function resumeRun(deps: RunDeps, runId: string, options: ResumeOpt
   if (header.status === "running" && header.lease_until && Date.parse(header.lease_until) > deps.now().getTime()) {
     throw new ResumeError(`run ${runId} is still running (lease until ${header.lease_until}); wait for the lease to expire`);
   }
-  if (options.approveTool !== undefined && header.pending?.callId !== options.approveTool) {
-    throw new ResumeError(`${options.approveTool} is not the pending call of ${runId}${header.pending ? ` (pending: ${header.pending.callId})` : " (nothing is pending)"}`);
+  if (options.approveTool !== undefined && options.denyTool !== undefined) throw new ResumeError("a pending call can be allowed or declined, not both");
+  const decided = options.approveTool ?? options.denyTool;
+  if (decided !== undefined && header.pending?.callId !== decided) {
+    throw new ResumeError(`${decided} is not the pending call of ${runId}${header.pending ? ` (pending: ${header.pending.callId})` : " (nothing is pending)"}`);
   }
 
   const steps = repo.steps(runId);
@@ -44,12 +48,22 @@ export async function resumeRun(deps: RunDeps, runId: string, options: ResumeOpt
   if (options.approveTool !== undefined && pendingCall) {
     await deps.ledger.append({ actor, event: "tool.approved_once", payload: { run_id: runId, call_id: pendingCall.callId, tool: pendingCall.tool, step: pendingCall.step } });
   }
+  if (options.denyTool !== undefined && pendingCall) {
+    await deps.ledger.append({ actor, event: "tool.denied_once", payload: { run_id: runId, call_id: pendingCall.callId, tool: pendingCall.tool, step: pendingCall.step } });
+  }
   await deps.ledger.append({
     actor,
     event: "run.resumed",
-    payload: { run_id: runId, from_status: header.status, steps_done: header.steps_done, policy_hash: nowHash, ...(options.approveTool ? { approved_call: options.approveTool } : {}) },
+    payload: {
+      run_id: runId,
+      from_status: header.status,
+      steps_done: header.steps_done,
+      policy_hash: nowHash,
+      ...(options.approveTool ? { approved_call: options.approveTool } : {}),
+      ...(options.denyTool ? { denied_call: options.denyTool } : {}),
+    },
   });
 
   repo.reopen(runId, { policyHash: nowHash, limits: { max_steps: limits.max_steps, max_tokens: limits.max_tokens, max_cost_usd: limits.max_cost_usd }, now: deps.now() });
-  return drive({ deps, repo, runId, redactor, signal, ...(options.approveTool ? { approveCallId: options.approveTool } : {}) });
+  return drive({ deps, repo, runId, redactor, signal, ...(options.approveTool ? { approveCallId: options.approveTool } : {}), ...(options.denyTool ? { denyCallId: options.denyTool } : {}) });
 }

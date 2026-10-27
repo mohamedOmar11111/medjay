@@ -103,6 +103,22 @@ interface Ctx {
   signal: AbortSignal;
   /** A pending call a human has approved for this resume. */
   approveCallId?: string;
+  /** A pending call a human has declined for this resume: it is not run, and the model is told. */
+  denyCallId?: string;
+}
+
+export const OWNER_DECLINED = "The owner declined this change. Do not send the same text again; ask what they would like different.";
+const ALREADY_DECLINED = "The owner already declined this exact change earlier in this run. Do not send it again; ask what they would like different.";
+const MAX_DIFF_CHARS = 4000;
+
+/** True when an earlier call in this run, with the same tool and the same input, was declined by the owner. */
+function declinedBefore(steps: StepRecord[], call: StoredCall): boolean {
+  const key = canonicalJson(call.input);
+  return steps.some((s) =>
+    s.tool_results.some(
+      (r) => r.error?.kind === "denied" && /^The owner (?:already )?declined/.test(r.error.message) && s.tool_calls.some((c) => c.call_id === r.call_id && c.name === call.name && canonicalJson(c.input) === key),
+    ),
+  );
 }
 
 /** Tell the observer, if any; its bugs stay its own. */
@@ -325,6 +341,14 @@ async function executeCalls(ctx: Ctx, step: StepRecord): Promise<"complete" | "n
       continue;
     }
     emit(ctx, { type: "tool.started", step: step.step_index, call_id: call.call_id, name: call.name, class: deps.registry.specs().find((t) => t.name === call.name)?.class ?? "unknown", input_hash: sha256(canonicalJson(call.input)).slice(0, 12) });
+    // A person said no to this call, or already said no to this exact one earlier in the run: it is not run, and not asked again.
+    const refusal = call.call_id === ctx.denyCallId ? OWNER_DECLINED : declinedBefore(repo.steps(runId), call) ? ALREADY_DECLINED : undefined;
+    if (refusal !== undefined) {
+      const card = cardFor(call.name, call.input, undefined, false, "denied");
+      emit(ctx, { type: "tool.finished", step: step.step_index, call_id: call.call_id, name: call.name, ok: false, label: card.label, summary: card.summary, error_kind: "denied" });
+      results.push({ call_id: call.call_id, name: call.name, status: "done", ok: false, error: { kind: "denied", message: refusal }, trust: "trusted" });
+      continue;
+    }
     const outcome = await deps.registry.invoke(
       { name: call.name, input: call.input },
       { runId, step: step.step_index, scope: deps.scope, signal: ctx.signal, ...(call.call_id === ctx.approveCallId ? { approveAsk: true } : {}) },
@@ -333,6 +357,13 @@ async function executeCalls(ctx: Ctx, step: StepRecord): Promise<"complete" | "n
     const card = cardFor(call.name, call.input, outcome.ok ? outcome.output : undefined, outcome.ok, outcome.ok ? undefined : outcome.error.kind);
     emit(ctx, { type: "tool.finished", step: step.step_index, call_id: call.call_id, name: call.name, ok: outcome.ok, label: card.label, summary: card.summary, ...(outcome.ok ? {} : { error_kind: outcome.error.kind }) });
     if (!outcome.ok && outcome.error.kind === "approval_required") {
+      // Show the person what would change. A call that could not succeed anyway goes back to the model, not to a person.
+      const shown = await deps.registry.preview({ name: call.name, input: call.input });
+      if (!shown.ok) {
+        results.push({ call_id: call.call_id, name: call.name, status: "done", ok: false, error: { kind: "invalid_input", message: shown.message }, trust: "trusted" });
+        continue;
+      }
+      emit(ctx, { type: "permission.requested", call_id: call.call_id, tool: call.name, summary: shown.preview.summary, ...(shown.preview.diff === undefined ? {} : { diff: shown.preview.diff.slice(0, MAX_DIFF_CHARS) }) });
       pending = { callId: call.call_id, tool: call.name, step: step.step_index };
       results.push({ call_id: call.call_id, name: call.name, status: "pending_approval", ok: false, error: outcome.error, trust: "trusted" });
       continue;

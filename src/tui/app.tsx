@@ -1,10 +1,11 @@
 // The Medjay terminal app: header, activity feed, side panel and a prompt. You ask in your own words
 // (English or Arabic); it picks the right read-only analysis, runs it through the CLI (see runner.ts,
 // so Shield, policy and the ledger apply unchanged) and answers in plain language. It never approves
-// or applies anything: that stays a typed action in a terminal.
+// or applies a plan: that stays a typed action in a terminal. The one thing it can ask you is whether the
+// agent may update one of your four context files (A allows that one change once, D or Esc declines).
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { answerIntent, askAgent, type AskContext, type Reply } from "./ask.js";
+import { answerIntent, askAgent, resumeAgent, type AskContext, type PermissionRequest, type Reply } from "./ask.js";
 import { cleanPastedSecret } from "../cli/secret-input.js";
 import { helpAnswer, modelErrorAnswer, renderAnswer, type Suggestion } from "./answers.js";
 import { COMMANDS, parseInput, pinnedSkillPrompt, resolveInput } from "./commands.js";
@@ -30,6 +31,8 @@ export interface AppProps {
   onExit?: () => void;
   /** Called with the folder of a workspace the app has just created, so the launcher can remember it. */
   onWorkspace?: (dir: string) => void;
+  /** How long a waiting change is left unanswered before it is declined (default 2 minutes). */
+  permissionTimeoutMs?: number;
 }
 
 const SIDEBAR_WIDTH = 30;
@@ -38,6 +41,7 @@ const SWITCHABLE = ["anthropic", "openai", "google"];
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const THINKS: Routed["intent"][] = ["performance", "waste", "scale", "trust"];
 const PROBE_TASK = "Reply with the single word OK.";
+const PERMISSION_TIMEOUT_MS = 120_000;
 
 const FEED_COLOR: Record<FeedTone, { color?: string; dim?: boolean; bold?: boolean }> = {
   normal: {},
@@ -87,7 +91,7 @@ function useTerminalSize(override?: { cols: number; rows: number }): { cols: num
 
 const hasLetters = (text: string) => /[A-Za-z؀-ۿ]/.test(text);
 
-export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit, onWorkspace }: AppProps) {
+export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit, onWorkspace, permissionTimeoutMs = PERMISSION_TIMEOUT_MS }: AppProps) {
   const { exit } = useApp();
   const { cols, rows } = useTerminalSize(sizeOverride);
   const nextId = useRef(10);
@@ -125,6 +129,9 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const [pinnedSkill, setPinnedSkill] = useState<string | null>(null);
   const pinnedRef = useRef<string | null>(null);
   const [sessionDrafts, setSessionDrafts] = useState<string[]>([]);
+  /** A change the agent wants to make, waiting for A (allow once) or D (decline). */
+  const [permission, setPermission] = useState<PermissionRequest | null>(null);
+  const permissionRef = useRef<PermissionRequest | null>(null);
   const [secretLen, setSecretLen] = useState(0);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
@@ -184,13 +191,90 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
     [runner],
   );
 
+  /** Show the owner what the agent wants to change and wait for A or D. */
+  const offer = useCallback(
+    (request: PermissionRequest) => {
+      permissionRef.current = request;
+      setPermission(request);
+      const lang = langRef.current;
+      const secs = Math.max(1, Math.round(permissionTimeoutMs / 1000));
+      add(
+        "out",
+        [
+          pick(lang)("I'd like to change one of your files:", "أبي أغيّر أحد ملفاتك:"),
+          request.summary,
+          ...(request.diff ? ["", request.diff] : []),
+          "",
+          pick(lang)(`[A]llow once   [D]eny   (Esc also denies; no answer in ${secs}s denies)`, `[A] للسماح مرة واحدة   [D] للرفض   (Esc يرفض أيضاً؛ بدون رد خلال ${secs} ثانية يُرفض)`),
+        ].join("\n"),
+      );
+    },
+    [add, permissionTimeoutMs],
+  );
+
   const showReply = useCallback(
     (reply: Reply) => {
       suggestions.current = reply.suggestions;
-      add("answer", reply.text);
+      if (reply.text.trim() !== "") add("answer", reply.text);
+      if (reply.permission) offer(reply.permission);
     },
-    [add],
+    [add, offer],
   );
+
+  /** What the agent's progress events look like in the feed: step counter and one numbered card per tool call. */
+  const agentContext = useCallback(
+    (dir: string, lang: Language): AskContext => {
+      const started = new Map<string, Extract<RunEvent, { type: "tool.started" }>>();
+      const onEvent = (e: RunEvent) => {
+        if (e.type === "step.started") setBusy(pick(lang)(`working · step ${e.step}`, `أشتغل · خطوة ${e.step}`));
+        else if (e.type === "tool.started") started.set(e.call_id, e);
+        else if (e.type === "tool.finished") {
+          const s = started.get(e.call_id);
+          cards.current.push([`Tool: ${e.name} (${s?.class ?? "tool"})`, `Call: ${e.call_id} · step ${e.step}`, `Input fingerprint: ${s?.input_hash ?? "n/a"}`, `Result: ${e.ok ? "ok" : `failed (${e.error_kind ?? "error"})`}`, `Summary: ${e.summary}`]);
+          add("card", `▸ [${cards.current.length}] ${e.label} · ${e.summary}`);
+          const saved = e.ok && e.name === "draft_save" ? draftPanelLine(e.summary) : null;
+          if (saved !== null) setSessionDrafts((d) => [...d, saved]);
+        }
+      };
+      return { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current, onEvent };
+    },
+    [add, tracked],
+  );
+
+  /** The owner's answer to a waiting change: allow that one call once, or decline it. The agent carries on either way. */
+  const decide = useCallback(
+    (choice: "allow" | "deny", timedOut = false) => {
+      const request = permissionRef.current;
+      const dir = wsRef.current;
+      if (request === null || dir === null) return;
+      permissionRef.current = null;
+      setPermission(null);
+      const lang = langRef.current;
+      add("info", choice === "allow" ? pick(lang)("Allowed once. Saving…", "تم السماح مرة واحدة. أحفظ…") : timedOut ? pick(lang)("No answer, so I declined.", "ما وصلني رد، فرفضت.") : pick(lang)("Declined.", "تم الرفض."));
+      cancelled.current = false;
+      setBusy(pick(lang)("carrying on", "أكمل"));
+      void (async () => {
+        try {
+          const reply = await resumeAgent(request, choice, agentContext(dir, lang));
+          if (cancelled.current) add("info", pick(lang)("Stopped.", "تم الإيقاف."));
+          else showReply(reply);
+        } catch (error) {
+          add("err", error instanceof Error ? error.message : String(error));
+        } finally {
+          running.current = null;
+          setBusy(null);
+          void refresh();
+        }
+      })();
+    },
+    [add, agentContext, refresh, showReply],
+  );
+
+  useEffect(() => {
+    if (permission === null) return;
+    const timer = setTimeout(() => decide("deny", true), permissionTimeoutMs);
+    return () => clearTimeout(timer);
+  }, [permission, decide, permissionTimeoutMs]);
 
   /** One analysis or agent question, start to finish. */
   const ask = useCallback(
@@ -207,19 +291,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
       void (async () => {
         try {
           if (routed !== null && !THINKS.includes(routed.intent)) await refresh();
-          const started = new Map<string, Extract<RunEvent, { type: "tool.started" }>>();
-          const onEvent = (e: RunEvent) => {
-            if (e.type === "step.started") setBusy(pick(lang)(`working · step ${e.step}`, `أشتغل · خطوة ${e.step}`));
-            else if (e.type === "tool.started") started.set(e.call_id, e);
-            else if (e.type === "tool.finished") {
-              const s = started.get(e.call_id);
-              cards.current.push([`Tool: ${e.name} (${s?.class ?? "tool"})`, `Call: ${e.call_id} · step ${e.step}`, `Input fingerprint: ${s?.input_hash ?? "n/a"}`, `Result: ${e.ok ? "ok" : `failed (${e.error_kind ?? "error"})`}`, `Summary: ${e.summary}`]);
-              add("card", `▸ [${cards.current.length}] ${e.label} · ${e.summary}`);
-              const saved = e.ok && e.name === "draft_save" ? draftPanelLine(e.summary) : null;
-              if (saved !== null) setSessionDrafts((d) => [...d, saved]);
-            }
-          };
-          const ctx: AskContext = { runner: tracked, workspaceDir: dir, dash: dashRef.current, lang, cancelled: () => cancelled.current, onEvent };
+          const ctx = agentContext(dir, lang);
           let reply = routed === null ? await askAgent(pinnedSkillPrompt(pinnedRef.current, text), ctx) : routed.intent === "greet" ? await askAgent(text, ctx, "chat") : await answerIntent(routed, ctx);
           if (routed?.intent === "greet" && reply.modelFailure) {
             // no usable model: the fixed greeting still works, plus the one thing to do about it
@@ -239,7 +311,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         }
       })();
     },
-    [add, refresh, showReply, tracked],
+    [add, agentContext, refresh, showReply],
   );
 
   /** First-run setup: collect answers, then run the init command through the CLI. */
@@ -412,6 +484,13 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
 
   useInput((typed, key) => {
     if (key.ctrl && typed === "c") return quit();
+    if (permissionRef.current !== null) {
+      // a change is waiting: only A, D and Esc mean anything until it is answered
+      const letter = typed.toLowerCase();
+      if (letter === "a") return decide("allow");
+      if (letter === "d" || key.escape) return decide("deny");
+      return;
+    }
     if (secretProvider !== null) {
       if (key.escape) {
         secretBuf.current = "";
@@ -477,7 +556,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const where = dash.workspace ? `${dash.workspace.name} · ${dash.workspace.currency}` : ws === null ? "setting up" : "";
   const scrolled = view.offset > 0 ? `↑ scrolled back ${view.offset} lines (${view.more} above) · PgDn returns` : null;
   const idle = secretProvider !== null ? pick(lang)("Paste the key · Enter saves · Esc cancels", "الصق المفتاح · Enter للحفظ · Esc للإلغاء") : onboardRef.current !== null ? pick(lang)("Answer the questions above · Ctrl+C quits", "جاوب على الأسئلة أعلاه · Ctrl+C للخروج") : pick(lang)("Ask me anything · type a number to pick a suggestion · / for shortcuts", "اسألني أي شي · اكتب رقم لاختيار اقتراح · / للاختصارات");
-  const status = [busy !== null ? `${SPINNER[tick % SPINNER.length]} ${busy} · Esc stops` : null, scrolled].filter(Boolean).join(" · ") || idle;
+  const status = [permission !== null ? pick(lang)("[A]llow once · [D]eny · Esc denies", "[A] سماح مرة · [D] رفض · Esc يرفض") : null, busy !== null ? `${SPINNER[tick % SPINNER.length]} ${busy} · Esc stops` : null, scrolled].filter(Boolean).join(" · ") || idle;
 
   return (
     <Box flexDirection="column" width={cols} height={rows}>
