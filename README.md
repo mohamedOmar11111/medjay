@@ -35,6 +35,14 @@ Working from a clone of this repository instead:
 npm install && npm run build && npm link
 ```
 
+If it does not start:
+
+- **"Medjay needs Node.js 22.13 or newer"**: install the current LTS from https://nodejs.org, open a new terminal, and run `mdj` again. Check with `node --version`.
+- **`mdj` is not recognized**: close the terminal and open a new one (the install adds a folder to your PATH). If it still fails, run `npm config get prefix` and make sure that folder is on your PATH.
+- **Windows PowerShell says "running scripts is disabled on this system"**: run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use Command Prompt, or run `mdj.cmd` instead of `mdj`.
+- **"OS keychain" fails in `mdj doctor`** (a Linux server, a container, WSL without a keyring): set your key as an environment variable instead, for example `MEDJAY_ANTHROPIC_API_KEY`, `MEDJAY_OPENAI_API_KEY` or `MEDJAY_GOOGLE_API_KEY`. Keys are never written to files.
+- **Anything else**: run `mdj doctor` and read the failed line; it says what to do. Please open an issue at https://github.com/mohamedOmar11111/medjay/issues with that output (never paste a key).
+
 Which AI model: bring your own key for Anthropic, OpenAI or Google (`/connect anthropic`, `/connect openai` or `/connect google` in the app, or `mdj auth set <provider>`). A workspace starts on Anthropic's `claude-sonnet-5-5`; setup and `/connect` switch it to the provider whose key you have (`gpt-5.4-mini` for OpenAI, `gemini-2.5-flash` for Google), and `mdj models use <provider> [--model <id>]` does it by hand.
 
 Where things go: new workspaces are created in `~/Medjay` (change it with the `MEDJAY_WORKSPACES` environment variable); the "last workspace" note is kept in `~/.medjay` (`MEDJAY_HOME`). Pass `--workspace <folder>` to any command to use a specific workspace.
