@@ -10,6 +10,8 @@ export const INVARIANTS = Object.freeze({
   strikeRequiresTypedOrButton: true,
   /** A confirmation is bound to the plan hash it was shown, not just a plan number. */
   confirmationBindsPlanHash: true,
+  /** An agent's change to a context file always waits for a person, whatever the policy rules say. */
+  contextUpdateAlwaysAsks: true,
 } as const);
 
 /** Keys that must never appear in workspace.yaml because the rule they would toggle is fixed. */

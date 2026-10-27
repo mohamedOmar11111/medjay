@@ -18,6 +18,8 @@ import { ToolRegistry } from "../registry.js";
 import { RunScope } from "../scope.js";
 import { createDraftChecker } from "../../drafts/checker.js";
 import { DraftStore } from "../../drafts/store.js";
+import { ContextStore } from "../../context/store.js";
+import { contextTools } from "../tools/context-update.js";
 import { draftTools } from "../tools/drafts.js";
 import { growthTools, type GrowthPort } from "../tools/growth.js";
 import { skillTools } from "../tools/skills.js";
@@ -75,6 +77,12 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
     registry.register(tool);
   }
   for (const tool of draftTools(drafts)) registry.register(tool);
+  const contextStore = new ContextStore(dir, {
+    audit: async ({ event, author, ...payload }) => {
+      await ledger.append({ actor: String(author), event: String(event), payload });
+    },
+  });
+  for (const tool of contextTools(contextStore)) registry.register(tool);
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
   const home = options.home ?? homedir();
   const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") || p.startsWith("~\\") ? join(home, p.slice(2)) : p);

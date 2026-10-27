@@ -1,8 +1,9 @@
-// The tool registry: the ONLY way an agent run touches anything. Tools come in three classes and
+// The tool registry: the ONLY way an agent run touches anything. Tools come in four classes and
 // none of them can change a platform:
 //   read    : look at workspace data (scoped to one client)
 //   draft   : produce text for a human (copy, summaries)
 //   propose : turn an idea into validated proposals; a plan compiled from them still needs approval
+//   context : change one of the four context files the owner fills in; ALWAYS waits for a person
 // There is no write class. Changes reach a platform only through plan -> approve -> strike.
 //
 // Every call goes through one pipeline: lookup, strict input validation, permission (shield policy
@@ -16,8 +17,8 @@ import { evaluateRules } from "../shield/evaluate.js";
 import type { Policy } from "../shield/policy.js";
 import { RunScope, ScopeError } from "./scope.js";
 
-export type ToolClass = "read" | "draft" | "propose";
-export const TOOL_CLASSES: readonly ToolClass[] = ["read", "draft", "propose"];
+export type ToolClass = "read" | "draft" | "propose" | "context";
+export const TOOL_CLASSES: readonly ToolClass[] = ["read", "draft", "propose", "context"];
 
 export type Trust = "trusted" | "untrusted";
 
@@ -108,7 +109,7 @@ export class ToolRegistry {
   register<S extends z.ZodType, O>(definition: ToolDef<S, O>): void {
     const tool = definition as unknown as ToolDef;
     if (!NAME.test(tool.name)) throw new Error(`invalid tool name "${tool.name}": use lowercase letters, digits and underscores (2-48 characters)`);
-    if (!TOOL_CLASSES.includes(tool.class)) throw new Error(`invalid tool class "${String(tool.class)}": tools are read, draft or propose; there is no write class`);
+    if (!TOOL_CLASSES.includes(tool.class)) throw new Error(`invalid tool class "${String(tool.class)}": tools are read, draft, propose or context; there is no write class`);
     if (WRITE_LIKE.test(tool.name)) throw new Error(`tool name "${tool.name}" reads like a write; agents cannot write. Changes go through a plan`);
     if (this.tools.has(tool.name)) throw new Error(`tool "${tool.name}" is already registered`);
     this.tools.set(tool.name, tool);
@@ -204,6 +205,8 @@ export class ToolRegistry {
     if (policy.forbidden_actions.includes(tool.name) || policy.forbidden_actions.includes(action)) return "deny";
     const effects = resources.map((resource) => evaluateRules(policy.rules, action, resource, policy.defaults.effect));
     if (effects.includes("deny")) return "deny";
+    // A change to a context file always waits for a person: engine code, so no policy edit can lift it.
+    if (tool.class === "context") return "ask";
     return effects.includes("ask") ? "ask" : "allow";
   }
 

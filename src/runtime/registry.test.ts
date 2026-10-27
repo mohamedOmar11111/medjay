@@ -58,12 +58,12 @@ describe("register", () => {
     }
   });
 
-  it("has no write class: only read, draft and propose can be registered", async () => {
+  it("has no write class: only read, draft, propose and context can be registered", async () => {
     const { registry } = await setup();
     for (const cls of ["write", "execute", "strike", "approve", "delete"]) {
       expect(() => registry.register({ ...echo, name: "ok_name", class: cls } as unknown as ToolDef), cls).toThrow(/class/);
     }
-    for (const cls of ["read", "draft", "propose"] as const) {
+    for (const cls of ["read", "draft", "propose", "context"] as const) {
       expect(() => registry.register({ ...echo, name: `tool_${cls}`, class: cls } as ToolDef)).not.toThrow();
     }
   });

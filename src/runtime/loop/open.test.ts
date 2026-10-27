@@ -30,13 +30,13 @@ const port: GrowthPort = {
 describe("openRun tool set", () => {
   it("has the built-in and draft tools by default", async () => {
     const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, home: join(root, "no-home") });
-    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["draft_diff", "draft_list", "draft_read", "draft_save", "lint_copy", "list_files", "propose_plan_actions", "read_file"]);
+    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["context_update", "draft_diff", "draft_list", "draft_read", "draft_save", "lint_copy", "list_files", "propose_plan_actions", "read_file"]);
     opened.close();
   });
 
   it("adds the growth tools when a growth port is given", async () => {
     const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, growth: port, home: join(root, "no-home") });
-    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["draft_diff", "draft_list", "draft_read", "draft_save", "growth_context", "growth_diagnose", "growth_scout", "growth_simulate", "lint_copy", "list_files", "propose_plan_actions", "read_file", "workspace_readiness"]);
+    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["context_update", "draft_diff", "draft_list", "draft_read", "draft_save", "growth_context", "growth_diagnose", "growth_scout", "growth_simulate", "lint_copy", "list_files", "propose_plan_actions", "read_file", "workspace_readiness"]);
     opened.close();
   });
 });
@@ -54,7 +54,7 @@ describe("openRun with skills", () => {
 
   it("registers nothing extra when there are no skills anywhere", async () => {
     const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, home: join(root, "no-home") });
-    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["draft_diff", "draft_list", "draft_read", "draft_save", "lint_copy", "list_files", "propose_plan_actions", "read_file"]);
+    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["context_update", "draft_diff", "draft_list", "draft_read", "draft_save", "lint_copy", "list_files", "propose_plan_actions", "read_file"]);
     opened.close();
   });
 

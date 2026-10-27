@@ -7,6 +7,7 @@ describe("engine invariants (not configurable)", () => {
     expect(INVARIANTS.voiceMayChangePolicy).toBe(false);
     expect(INVARIANTS.strikeRequiresTypedOrButton).toBe(true);
     expect(INVARIANTS.confirmationBindsPlanHash).toBe(true);
+    expect(INVARIANTS.contextUpdateAlwaysAsks).toBe(true);
   });
 
   it("is frozen so code cannot flip a rule at runtime", () => {

@@ -78,6 +78,8 @@ const POLICY = {
     { action: "read.*", resource: "*", effect: "allow" },
     { action: "draft.*", resource: "*", effect: "allow" },
     { action: "propose.*", resource: "*", effect: "allow" },
+    // Changing a context file is the one thing an agent can ask to do to a workspace: a person decides each time.
+    { action: "context.*", resource: "*", effect: "ask" },
     { action: "plan.strike", resource: "*", effect: "ask" },
   ],
   circuit_breakers: { grant: null, rules: [] },
