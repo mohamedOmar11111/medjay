@@ -34,7 +34,7 @@ const exists = (path: string) =>
 
 const rate = (note: string) => ({ value: null, low: null, high: null, source: "", note });
 
-function contextFiles(id: string): Record<string, string> {
+export function contextFiles(id: string): Record<string, string> {
   const unitEconomics = {
     currency: "USD",
     cpc: rate("cost per click"),

@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -60,5 +60,43 @@ describe("the growth port over a real workspace", () => {
     expect(await port.dataId()).toBe(first);
     await writeFile(join(dir, "data", "imports", "extra.csv"), "a,b\n1,2\n");
     expect(await port.dataId()).not.toBe(first);
+  });
+});
+
+describe("the growth port when there is no data yet (an expected state, not a failure)", () => {
+  let bare: string;
+  beforeEach(async () => {
+    bare = join(root, "bare");
+    await initWorkspace({ dir: bare, id: "bare", businessType: "ecom", baseCurrency: "SAR" });
+  });
+
+  it("scout on an empty dropzone says no_data_yet and what to export, and does not throw", async () => {
+    const r = (await createGrowthPort(bare).scout(7)) as { status: string; files_found: number; dropzone: string; exports_needed: string[]; unmatched: unknown[] };
+    expect(r.status).toBe("no_data_yet");
+    expect(r.files_found).toBe(0);
+    expect(r.dropzone).toContain("imports");
+    expect(r.exports_needed.length).toBeGreaterThan(0);
+    expect(r.unmatched).toEqual([]);
+  });
+
+  it("scout with a file Medjay cannot read names the file and why", async () => {
+    await mkdir(join(bare, "data", "imports"), { recursive: true });
+    await writeFile(join(bare, "data", "imports", "notes.csv"), "a,b\n1,2\n", "utf8");
+    const r = (await createGrowthPort(bare).scout(7)) as { status: string; files_found: number; unmatched: { file: string; reason: string }[] };
+    expect(r.status).toBe("no_data_yet");
+    expect(r.files_found).toBe(1);
+    expect(r.unmatched[0]).toMatchObject({ file: "notes.csv" });
+    expect(r.unmatched[0]!.reason.length).toBeGreaterThan(0);
+  });
+
+  it("diagnose and a simulation with no spend report the same state instead of throwing", async () => {
+    const port = createGrowthPort(bare);
+    expect(await port.diagnose(7)).toMatchObject({ status: "no_data_yet" });
+    expect(await port.simulate({})).toMatchObject({ status: "no_data_yet" });
+  });
+
+  it("a real problem is still an error (an unreadable mapping file is not 'no data')", async () => {
+    await writeFile(join(bare, "ingestion.mappings.yaml"), "not: [valid", "utf8");
+    await expect(createGrowthPort(bare).scout(7)).rejects.toThrow();
   });
 });

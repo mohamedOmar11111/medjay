@@ -39,6 +39,10 @@ function fakePort(): GrowthPort & { id: string; calls: string[] } {
       port.calls.push("context");
       return { unit_economics: "aov: 5000", claims: "", offers: "", tactics: [] };
     },
+    async readiness() {
+      port.calls.push("readiness");
+      return { context: { files: [], ready_count: 0 }, data: { files_found: 0 }, connections: [] };
+    },
     async simulate(input: { spend?: number; scale_pct?: number }) {
       port.calls.push(`simulate:${input.scale_pct ?? "-"}`);
       return { status: "ok", p_positive: 0.7 };
@@ -57,10 +61,10 @@ async function setup(port: GrowthPort) {
 }
 
 describe("growth tools", () => {
-  it("are four read tools with growth_ names, and none can change anything", async () => {
+  it("are read tools, and none can change anything", async () => {
     const { registry } = await setup(fakePort());
     const specs = registry.specs();
-    expect(specs.map((s) => s.name)).toEqual(["growth_context", "growth_diagnose", "growth_scout", "growth_simulate"]);
+    expect(specs.map((s) => s.name)).toEqual(["growth_context", "growth_diagnose", "growth_scout", "growth_simulate", "workspace_readiness"]);
     expect(new Set(specs.map((s) => s.class))).toEqual(new Set(["read"]));
   });
 
@@ -74,6 +78,23 @@ describe("growth tools", () => {
     const diag = await registry.invoke({ name: "growth_diagnose", input: {} }, run("run_a"));
     expect(diag).toMatchObject({ ok: true });
     expect(port.calls).toEqual(["scout:14", "diagnose:7"]);
+  });
+
+  it("workspace_readiness needs no scout, works on an empty workspace and is trusted (it reports the owner's own files)", async () => {
+    const port = fakePort();
+    const { registry, run } = await setup(port);
+    const r = await registry.invoke({ name: "workspace_readiness", input: {} }, run("run_r"));
+    expect(r).toMatchObject({ ok: true, trust: "trusted", output: { source: "workspace_readiness", context: { ready_count: 0 } } });
+    expect(port.calls).toEqual(["readiness"]);
+  });
+
+  it("a scout that finds no data yet is still a scout: it is not an error and does not block diagnose", async () => {
+    const port = fakePort();
+    port.scout = async () => ({ status: "no_data_yet", files_found: 0 });
+    port.diagnose = async () => ({ status: "no_data_yet", files_found: 0 });
+    const { registry, run } = await setup(port);
+    expect(await registry.invoke({ name: "growth_scout", input: {} }, run("run_n"))).toMatchObject({ ok: true, output: { status: "no_data_yet" } });
+    expect(await registry.invoke({ name: "growth_diagnose", input: {} }, run("run_n"))).toMatchObject({ ok: true, output: { status: "no_data_yet" } });
   });
 
   it("diagnose and simulate refuse to run before a scout in the same run", async () => {

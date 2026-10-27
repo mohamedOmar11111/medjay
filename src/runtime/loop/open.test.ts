@@ -24,6 +24,7 @@ const port: GrowthPort = {
   diagnose: async () => ({}),
   context: async () => ({}),
   simulate: async () => ({}),
+  readiness: async () => ({}),
 };
 
 describe("openRun tool set", () => {
@@ -35,7 +36,7 @@ describe("openRun tool set", () => {
 
   it("adds the growth tools when a growth port is given", async () => {
     const opened = await openRun({ dir, slot: "reasoning", driver: NO_MODEL, growth: port, home: join(root, "no-home") });
-    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["draft_diff", "draft_list", "draft_read", "draft_save", "growth_context", "growth_diagnose", "growth_scout", "growth_simulate", "lint_copy", "list_files", "propose_plan_actions", "read_file"]);
+    expect(opened.deps.registry.specs().map((s) => s.name)).toEqual(["draft_diff", "draft_list", "draft_read", "draft_save", "growth_context", "growth_diagnose", "growth_scout", "growth_simulate", "lint_copy", "list_files", "propose_plan_actions", "read_file", "workspace_readiness"]);
     opened.close();
   });
 });

@@ -14,6 +14,7 @@ const LABELS: Record<string, string> = {
   growth_diagnose: "Diagnosis",
   growth_context: "Your context",
   growth_simulate: "Simulation",
+  workspace_readiness: "Workspace check",
   skill_search: "Skill search",
   skill_load: "Skill",
   draft_save: "Draft saved",
@@ -64,6 +65,10 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       return { label, summary: `${plural(n, "proposal")}${typeof status === "string" ? ` · policy check: ${status}` : ""}` };
     }
     case "growth_scout": {
+      if (out.status === "no_data_yet") {
+        const unreadable = Array.isArray(out.unmatched) ? out.unmatched.length : 0;
+        return { label, summary: unreadable > 0 ? `no data yet · ${plural(unreadable, "file")} could not be read` : "no data yet" };
+      }
       const snapshot = rec(out.snapshot);
       const summary = rec(out.summary);
       const range = (p: unknown) => {
@@ -81,10 +86,17 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       return { label, summary: "no ad data found" };
     }
     case "growth_diagnose": {
+      if (out.status === "no_data_yet") return { label, summary: "no data yet" };
       const findings = Array.isArray(out.findings) ? out.findings.length : 0;
       const zero = rec(rec(out.summary).zero_conversion_total);
       if (findings === 0 && num(zero.terms) > 0) return { label, summary: `${num(zero.terms)} search terms never converted` };
       return { label, summary: plural(findings, "finding") };
+    }
+    case "workspace_readiness": {
+      const context = rec(out.context);
+      const total = Array.isArray(context.files) ? context.files.length : 0;
+      const files = num(rec(out.data).files_found);
+      return { label, summary: `${num(context.ready_count)} of ${total} context files ready · ${files === 0 ? "no data files" : plural(files, "data file")}` };
     }
     case "growth_context":
       return { label, summary: `economics, claims, offers · ${plural(Array.isArray(out.tactics) ? out.tactics.length : 0, "tactic")}` };
@@ -92,6 +104,7 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       const result = rec(out.result);
       if (result.status === "ok") return { label, summary: `${Math.round(num(rec(result.monte_carlo).p_positive) * 100)}% chance it pays off` };
       if (result.status === "insufficient_inputs") return { label, summary: `missing ${plural(Array.isArray(result.problems) ? result.problems.length : 0, "number")}` };
+      if (result.status === "no_data_yet") return { label, summary: "no data yet" };
       return { label, summary: String(result.status ?? "done") };
     }
     case "skill_search": {

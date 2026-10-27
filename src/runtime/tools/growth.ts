@@ -17,6 +17,8 @@ export interface GrowthPort {
   /** The owner's unit economics, claims and offers, and the tested-tactics log. */
   context(): Promise<unknown>;
   simulate(input: { spend?: number; scale_pct?: number; seed?: number; draws?: number; days?: number }): Promise<unknown>;
+  /** What is ready in this workspace and what is missing: context files, data, connections, limits, export guides. */
+  readiness(): Promise<unknown>;
 }
 
 const Days = z.number().int().min(1).max(365).default(7).describe("how many days the window covers, ending at the newest ad data");
@@ -97,5 +99,16 @@ export function growthTools(port: GrowthPort): ToolDef[] {
     },
   });
 
-  return [contextTool, diagnoseTool, scoutTool, simulateTool] as unknown as ToolDef[];
+  const readinessTool = defineTool({
+    name: "workspace_readiness",
+    description:
+      "Check what is ready in this workspace and what is missing: which of the four context files (unit economics, offers, brand voice, claims) are filled, whether any ad data has been imported, what is connected, the safety limits that apply, and how to export each kind of report. Call this first when the person asks what to do, when a session starts, or when the workspace may not be ready. It needs no data and no scout.",
+    class: "read",
+    input: z.object({}).strict(),
+    maxOutputBytes: 60_000,
+    execute: async (_input, ctx) => ({ as_of: ctx.now().toISOString(), source: "workspace_readiness", ...((await port.readiness()) as object) }),
+    trustOf: () => "trusted",
+  });
+
+  return [contextTool, diagnoseTool, scoutTool, simulateTool, readinessTool] as unknown as ToolDef[];
 }

@@ -5,11 +5,14 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { diagnose } from "../analysis/diagnose.js";
+import { exportsNeeded, GUIDE_NOTICE } from "../guide/exports.js";
+import { NoDataError } from "../ingest/autodetect.js";
 import { loadUnitEconomics, simulate } from "../analysis/simulate.js";
 import type { GrowthPort } from "../runtime/tools/growth.js";
 import { loadTactics } from "../tactics/files.js";
 import { loadWorkspace } from "../workspace/load.js";
 import { openAnalysis } from "./analysis-commands.js";
+import { readinessOf } from "./readiness.js";
 
 const CONTEXT_FILE_CAP = 20_000;
 
@@ -23,8 +26,32 @@ async function readCapped(path: string): Promise<string> {
   }
 }
 
-export function createGrowthPort(dir: string): GrowthPort {
+/** Nothing to analyse yet is an expected state, so it is returned as data, not thrown. */
+function noDataYet(error: NoDataError) {
   return {
+    status: "no_data_yet" as const,
+    message: "There is no ad data in this workspace yet, so there is nothing to analyse. Medjay can still help without it.",
+    dropzone: error.dropzoneDir,
+    files_found: error.unmatched.length,
+    unmatched: error.unmatched,
+    exports_needed: exportsNeeded(),
+    guide_notice: GUIDE_NOTICE,
+  };
+}
+
+/** Run an analysis; turn "no data yet" into a normal result. Any other failure still throws. */
+async function orNoData<T>(run: () => Promise<T>): Promise<T | ReturnType<typeof noDataYet>> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof NoDataError) return noDataYet(error);
+    throw error;
+  }
+}
+
+export function createGrowthPort(dir: string): GrowthPort {
+  const inner: GrowthPort = {
+    readiness: () => readinessOf(dir),
     async dataId() {
       const { dropzoneDir } = await loadWorkspace(dir);
       let names: string[] = [];
@@ -103,5 +130,13 @@ export function createGrowthPort(dir: string): GrowthPort {
         w.close();
       }
     },
+  };
+  return {
+    dataId: () => inner.dataId(),
+    scout: (days) => orNoData(() => inner.scout(days)),
+    diagnose: (days) => orNoData(() => inner.diagnose(days)),
+    context: () => inner.context(),
+    readiness: () => inner.readiness(),
+    simulate: (input) => orNoData(() => inner.simulate(input)),
   };
 }

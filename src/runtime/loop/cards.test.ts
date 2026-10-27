@@ -63,6 +63,26 @@ describe("cardFor the skill tools", () => {
   });
 });
 
+describe("cardFor workspace_readiness", () => {
+  const ready = (n: number, files: number) => ({ context: { ready_count: n, files: [{}, {}, {}, {}] }, data: { files_found: files }, connections: [] });
+  it("says how much context and data there is, in a few words", () => {
+    expect(cardFor("workspace_readiness", {}, ready(0, 0), true)).toEqual({ label: "Workspace check", summary: "0 of 4 context files ready · no data files" });
+    expect(cardFor("workspace_readiness", {}, ready(2, 3), true).summary).toBe("2 of 4 context files ready · 3 data files");
+    expect(cardFor("workspace_readiness", {}, ready(4, 1), true).summary).toBe("4 of 4 context files ready · 1 data file");
+  });
+});
+
+describe("cardFor an expected 'no data yet' state", () => {
+  it("is a plain statement, not an error", () => {
+    expect(cardFor("growth_scout", {}, { status: "no_data_yet", files_found: 0 }, true)).toEqual({ label: "Truth check", summary: "no data yet" });
+    expect(cardFor("growth_diagnose", {}, { status: "no_data_yet" }, true).summary).toBe("no data yet");
+    expect(cardFor("growth_simulate", {}, { result: { status: "no_data_yet" } }, true).summary).toBe("no data yet");
+  });
+  it("says how many files could not be read when there are some", () => {
+    expect(cardFor("growth_scout", {}, { status: "no_data_yet", files_found: 2, unmatched: [{}, {}] }, true).summary).toBe("no data yet · 2 files could not be read");
+  });
+});
+
 describe("cardFor the draft tools", () => {
   const SHA = "1a2b3c4d5e6f0000000000000000000000000000000000000000000000000000";
   it("save: which draft, version, short hash and the copy check as PASS or FAIL", () => {

@@ -287,6 +287,18 @@ export async function detectMappings(dropzoneDir: string, baseCurrency: string):
   return { mappings: parsed.data, yaml: header + stringifyYaml(raw), sources: sources.map((s) => s.id as string), unmatched, notes };
 }
 
+/** There is nothing to analyse yet: no mapping file, and the dropzone has no export Medjay can read. An expected state. */
+export class NoDataError extends MappingError {
+  constructor(
+    message: string,
+    readonly unmatched: { file: string; reason: string }[],
+    readonly dropzoneDir: string,
+  ) {
+    super(message);
+    this.name = "NoDataError";
+  }
+}
+
 export interface MappingsResult {
   mappings: Mappings;
   generated: Detection | null;
@@ -302,8 +314,10 @@ export async function loadOrDetectMappings(workspaceDir: string, dropzoneDir: st
   const detection = await detectMappings(dropzoneDir, baseCurrency);
   if (detection.mappings === null) {
     const found = detection.unmatched.map((u) => `  - ${u.file}${u.headers.length ? ` (headers: ${u.headers.join(", ")})` : ""}: ${u.reason}`);
-    throw new MappingError(
+    throw new NoDataError(
       `no ${MAPPINGS_FILE} in this workspace, and the exports in ${dropzoneDir} could not be matched automatically.${found.length ? `\n${found.join("\n")}` : "\n  (no CSV files found there; export your ad platform reports into that folder)"}\nWrite the mapping by hand: see docs/SPEC.md section 30.9`,
+      detection.unmatched.map((u) => ({ file: u.file, reason: u.reason })),
+      dropzoneDir,
     );
   }
   await writeFile(join(workspaceDir, MAPPINGS_FILE), detection.yaml, { encoding: "utf8", flag: "wx" });

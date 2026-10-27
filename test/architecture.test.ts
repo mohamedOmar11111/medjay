@@ -26,13 +26,14 @@ const ALLOWED: Record<string, string[]> = {
   store: ["shared"],
   style: ["shared"],
   plan: ["shield", "store", "audit", "models", "ingest", "analysis", "shared"],
-  runtime: ["shield", "audit", "style", "plan", "workspace", "store", "models", "skills", "drafts", "plugins", "shared"],
+  runtime: ["guide", "shield", "audit", "style", "plan", "workspace", "store", "models", "skills", "drafts", "plugins", "shared"],
   workspace: ["models", "audit", "pillars", "shield", "style", "shared"],
   skills: ["shared"],
+  guide: ["shared"],
   plugins: ["skills", "shared"],
   drafts: ["style", "workspace", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
-  cli: ["tui", "skills", "drafts", "plugins", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
+  cli: ["tui", "guide", "skills", "drafts", "plugins", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
   root: ["cli", "tui", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],
 };
 
