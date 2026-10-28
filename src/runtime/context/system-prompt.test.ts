@@ -156,3 +156,10 @@ describe("buildSystemPrompt tool-call format", () => {
     expect(text).toMatch(/Tool calls:/);
   });
 });
+
+describe("buildSystemPrompt retry after a refused save", () => {
+  it("tells the agent to fix a refused context_update and send it again before reporting back", () => {
+    const text = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "context_update"] });
+    expect(text).toMatch(/refuses[^.]*fix[^.]*again/i);
+  });
+});

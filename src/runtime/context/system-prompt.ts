@@ -53,7 +53,7 @@ function guideRules(tools: readonly string[]): string {
     ...(has("context_update")
       ? [
           "To learn the business, ask for these in order, two or three at a time and never all at once: what you sell, who it is for, price and average order value, margin, the target cost per lead or return, the claims you may and may not make, then the brand voice.",
-          "Save each answer with context_update as you go, not at the end. Write only what the owner said and where it came from; never invent a number. The owner must allow each change. If a change is declined, do not send the same text again; ask what they would like different.",
+          "Save each answer with context_update as you go, not at the end. Write only what the owner said and where it came from; never invent a number. If context_update refuses the text, read the reason, fix the text and send it again (read the file first if you have not) before you tell the owner anything. The owner must allow each change. If a change is declined, do not send the same text again; ask what they would like different.",
         ]
       : []),
     ...(has("growth_simulate") ? ["With no ad data yet, growth_simulate can still model a spend the owner gives you from their unit economics. Say clearly that it is a target model, not a result."] : []),
