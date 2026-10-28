@@ -42,6 +42,24 @@ const DRAFT_RULES = [
   "Saving a draft sends nothing and publishes nothing. Anything that leaves Medjay needs a plan a human approves.",
 ];
 
+/** Guide, Suggest, Act: what to do when the workspace is not ready, so a missing file or export is a next step, never a dead end. Lines about a tool appear only when the tool exists. */
+function guideRules(tools: readonly string[]): string {
+  const has = (name: string) => tools.includes(name);
+  return [
+    "Guide, Suggest, Act. Guide the owner to what is missing, suggest the next step, act on what you can do now.",
+    "When the owner asks what to do, when a session starts, or when you are not sure the workspace is ready, call workspace_readiness first. Never reply that you cannot answer because data is missing: say what is missing, then do the part that needs no data.",
+    "Work that needs no ad data is still work: positioning, offers, copy drafts, plans and checklists. Use the owner's saved skills and draft_save for it.",
+    ...(has("context_update")
+      ? [
+          "To learn the business, ask for these in order, two or three at a time and never all at once: what you sell, who it is for, price and average order value, margin, the target cost per lead or return, the claims you may and may not make, then the brand voice.",
+          "Save each answer with context_update as you go, not at the end. Write only what the owner said and where it came from; never invent a number. The owner must allow each change. If a change is declined, do not send the same text again; ask what they would like different.",
+        ]
+      : []),
+    ...(has("growth_simulate") ? ["With no ad data yet, growth_simulate can still model a spend the owner gives you from their unit economics. Say clearly that it is a target model, not a result."] : []),
+    ...(has("suggest_next") ? ["End every answer by calling suggest_next once with up to three next steps: work you can do now, and the one thing that would unlock more."] : []),
+  ].join("\n");
+}
+
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const { policy } = input;
   const limits = policy.runtime_limits;
@@ -60,6 +78,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     ...(input.tools?.includes("draft_save") ? [DRAFT_RULES.join("\n")] : []),
     ...(input.tools?.includes("skill_search") ? [SKILL_RULES.join("\n")] : []),
     ...(input.tools?.includes("growth_scout") ? [GROWTH_RULES.join("\n")] : []),
+    ...(input.tools?.includes("workspace_readiness") ? [guideRules(input.tools)] : []),
   ];
   const directive = directiveFor(input.style, input.surface, input.language);
   if (directive) sections.push(directive);

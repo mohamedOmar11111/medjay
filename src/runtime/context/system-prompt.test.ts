@@ -106,3 +106,45 @@ describe("buildSystemPrompt with drafts", () => {
     expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["read_file"] })).not.toMatch(/draft_save/);
   });
 });
+
+describe("buildSystemPrompt guide rules (Guide, Suggest, Act)", () => {
+  const all = ["workspace_readiness", "context_update", "suggest_next", "growth_scout", "growth_simulate", "draft_save"];
+  const text = (tools: string[]) => buildSystemPrompt({ ...base, surface: "internal", tools });
+
+  it("appears when the workspace check exists, and not otherwise", () => {
+    expect(text(all)).toMatch(/Guide, Suggest, Act/);
+    expect(text(["read_file", "growth_scout"])).not.toMatch(/Guide, Suggest, Act|workspace_readiness/);
+  });
+
+  it("starts with the workspace check when asked what to do, and says never to answer 'I cannot' for missing data", () => {
+    const t = text(all);
+    expect(t).toMatch(/workspace_readiness first/);
+    expect(t).toMatch(/never (?:reply|answer|say)[^.]*cannot/i);
+    expect(t).toMatch(/missing/i);
+  });
+
+  it("gives the discovery questions in order, two or three at a time, saved as you go", () => {
+    const t = text(all);
+    const order = ["what you sell", "who it is for", "price and average", "margin, the target", "cost per lead", "claims you may", "brand voice"].map((w) => t.toLowerCase().indexOf(w));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(t).toMatch(/two or three/);
+    expect(t).toMatch(/context_update/);
+  });
+
+  it("names the tools it relies on: simulate with a spend and no data, and suggest_next last", () => {
+    const t = text(all);
+    expect(t).toMatch(/growth_simulate[^.]*spend/);
+    expect(t).toMatch(/suggest_next/);
+    expect(t).toMatch(/gd-|skill/i);
+  });
+
+  it("only mentions the tools that exist", () => {
+    const t = text(["workspace_readiness"]);
+    expect(t).not.toMatch(/context_update|suggest_next|growth_simulate/);
+  });
+
+  it("tells the agent a declined change must not be sent again", () => {
+    expect(text(all)).toMatch(/declin/i);
+  });
+});
