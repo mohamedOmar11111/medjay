@@ -148,3 +148,11 @@ describe("buildSystemPrompt guide rules (Guide, Suggest, Act)", () => {
     expect(text(all)).toMatch(/declin/i);
   });
 });
+
+describe("buildSystemPrompt tool-call format", () => {
+  it("says to call tools through the tool interface and never to write a call as text", () => {
+    const text = buildSystemPrompt({ ...base, surface: "internal", tools: ["read_file"] });
+    expect(text).toMatch(/never write a tool call as text/i);
+    expect(text).toMatch(/Tool calls:/);
+  });
+});

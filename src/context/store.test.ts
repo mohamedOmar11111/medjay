@@ -145,3 +145,43 @@ describe("checks the content before it can be saved", () => {
     await expect(store().apply("claims", "---\nclaims: []\n---\n# Claims\n", { author: "a", reason: "x" })).resolves.toMatchObject({ changed: true });
   });
 });
+
+describe("unit-economics must use the keys the simulation reads", () => {
+  const apply = (text: string) => store().apply("unit-economics", text, { author: "a", reason: "x" });
+
+  it("refuses a file with none of the known inputs, and names the keys to use (a model once saved a 'metric:' list)", async () => {
+    const wrong = "---\nname: Unit Economics\ncurrency: USD\n---\n- metric: Average Order Value\n  value: { low: 4200, high: 4200 }\n";
+    await expect(apply(wrong)).rejects.toThrow(/cpc.*average_deal_value|average_deal_value.*cpc/s);
+    expect(await readFile(join(dir, "context", "unit-economics.md"), "utf8")).toContain("note: cost per click");
+  });
+
+  it("never saves a file without a single usable input", async () => {
+    await expect(apply("---\ncurrency: USD\n---\n# nothing\n")).rejects.toThrow(/at least one/);
+  });
+
+  it("accepts one real input", async () => {
+    await expect(apply("---\ncurrency: USD\ncpc: { value: 2, low: 1.5, high: 3, source: owner }\n---\n")).resolves.toMatchObject({ changed: true });
+  });
+});
+
+describe("unit-economics inputs must carry a real source", () => {
+  const apply = (extra: string) => store().apply("unit-economics", `---\ncurrency: USD\ncpc: { value: 2, low: 1.5, high: 3, source: owner }\n${extra}\n---\n`, { author: "a", reason: "x" });
+
+  it("refuses a placeholder input (a model once filled unknown inputs with 0 and source 'missing')", async () => {
+    for (const source of ['""', "missing", "unknown", "n/a", "none", "TBD", "todo", "''"]) {
+      await expect(apply(`landing_page_cvr: { value: 0.02, low: 0.01, high: 0.03, source: ${source} }`), source).rejects.toThrow(/landing_page_cvr[^]*source/);
+    }
+    expect(await readFile(join(dir, "context", "unit-economics.md"), "utf8")).toContain("note: cost per click");
+  });
+
+  it("accepts an input with a real source, and leaving the others out", async () => {
+    await expect(apply("gross_margin: { value: 0.25, low: 0.2, high: 0.3, source: owner said 28 Oct }")).resolves.toMatchObject({ changed: true });
+  });
+});
+
+describe("unit-economics inputs must be real ranges", () => {
+  it("refuses an input whose low equals its high: that is a point estimate, often a zero filled in for an unknown", async () => {
+    const text = "---\ncurrency: USD\ncpc: { value: 2, low: 1.5, high: 3, source: owner }\nlanding_page_cvr: { value: 0.0, low: 0.0, high: 0.0, source: unconfirmed guess }\n---\n";
+    await expect(store().apply("unit-economics", text, { author: "a", reason: "x" })).rejects.toThrow(/landing_page_cvr[^]*(range|low)/);
+  });
+});

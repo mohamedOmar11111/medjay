@@ -356,13 +356,15 @@ async function executeCalls(ctx: Ctx, step: StepRecord): Promise<"complete" | "n
       { runId, step: step.step_index, scope: deps.scope, signal: ctx.signal, ...(call.call_id === ctx.approveCallId ? { approveAsk: true } : {}) },
     );
     if (ctx.signal.aborted) return "aborted";
-    const card = cardFor(call.name, call.input, outcome.ok ? outcome.output : undefined, outcome.ok, outcome.ok ? undefined : outcome.error.kind);
-    emit(ctx, { type: "tool.finished", step: step.step_index, call_id: call.call_id, name: call.name, ok: outcome.ok, label: card.label, summary: card.summary, ...(outcome.ok ? {} : { error_kind: outcome.error.kind }) });
+    // Show the person what would change. A call that could not succeed anyway goes back to the model, not to a person.
+    const shown = !outcome.ok && outcome.error.kind === "approval_required" ? await deps.registry.preview({ name: call.name, input: call.input }) : undefined;
+    const bounced = shown !== undefined && !shown.ok ? shown.message : undefined;
+    const kindShown = bounced !== undefined ? "invalid_input" : outcome.ok ? undefined : outcome.error.kind;
+    const card = cardFor(call.name, call.input, outcome.ok ? outcome.output : undefined, outcome.ok, kindShown);
+    emit(ctx, { type: "tool.finished", step: step.step_index, call_id: call.call_id, name: call.name, ok: outcome.ok, label: card.label, summary: card.summary, ...(kindShown === undefined ? {} : { error_kind: kindShown }) });
     if (!outcome.ok && outcome.error.kind === "approval_required") {
-      // Show the person what would change. A call that could not succeed anyway goes back to the model, not to a person.
-      const shown = await deps.registry.preview({ name: call.name, input: call.input });
-      if (!shown.ok) {
-        results.push({ call_id: call.call_id, name: call.name, status: "done", ok: false, error: { kind: "invalid_input", message: shown.message }, trust: "trusted" });
+      if (shown === undefined || !shown.ok) {
+        results.push({ call_id: call.call_id, name: call.name, status: "done", ok: false, error: { kind: "invalid_input", message: bounced ?? "could not be checked" }, trust: "trusted" });
         continue;
       }
       emit(ctx, { type: "permission.requested", call_id: call.call_id, tool: call.name, summary: shown.preview.summary, ...(shown.preview.diff === undefined ? {} : { diff: shown.preview.diff.slice(0, MAX_DIFF_CHARS) }) });

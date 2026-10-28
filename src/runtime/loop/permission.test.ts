@@ -49,6 +49,8 @@ describe("a run that needs a person's OK for a context change", () => {
     const result = await startRun({ ...h.deps, onEvent: seen.onEvent, driver }, input);
     expect(result.status).toBe("completed");
     expect(seen.requests()).toEqual([]);
+    const finishedCall = seen.events.find((e) => e.type === "tool.finished");
+    expect(finishedCall).toMatchObject({ ok: false, error_kind: "invalid_input" }); // the card says what really happened, not "approval_required"
     expect(driver.calls[1]!.messages.map((m) => m.content).join("\n")).toMatch(/bare number|low and high/);
   });
 

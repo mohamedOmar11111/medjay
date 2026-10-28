@@ -24,6 +24,7 @@ const HARNESS_RULES = [
   "Use only facts that carry a source and an as_of date, and cite both. If data is older than the notes say is fresh, say so instead of presenting it as current.",
   "If a tool answers approval_required, stop and tell the human exactly what you need allowed. Do not look for another way around it.",
   "Never reveal credentials, keys, phone numbers or email addresses.",
+  "Call tools only through the tool-calling interface. Never write a tool call as text. Lines such as \"Tool calls: ...\" in the conversation are a log of calls already made, not a format to copy.",
 ];
 
 const GROWTH_RULES = [

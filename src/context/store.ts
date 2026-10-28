@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { parseUnitEconomics } from "../analysis/simulate.js";
+import { INPUTS, parseUnitEconomics } from "../analysis/simulate.js";
 import { diffLines, type LineDiff } from "../drafts/diff.js";
 
 export const CONTEXT_FILES = ["unit-economics", "offer-matrix", "brand-voice", "claims"] as const;
@@ -75,8 +75,22 @@ function validate(file: ContextFile, text: string): void {
   if (bytes > MAX_CONTEXT_BYTES) throw new ContextError(`the text is too large (${bytes} bytes; the limit is ${MAX_CONTEXT_BYTES})`);
   const front = frontMatter(file, text);
   if (file === "unit-economics") {
-    const wrong = parseUnitEconomics(text).problems.filter((p) => p.problem !== "missing");
+    const parsed = parseUnitEconomics(text);
+    const wrong = parsed.problems.filter((p) => p.problem !== "missing");
     if (wrong.length > 0) throw new ContextError(wrong.map((p) => `${p.input}: ${p.message}`).join("; "));
+    const PLACEHOLDER = /^(?:|missing|unknown|n\/a|na|none|null|tbd|todo|-+)$/i;
+    const flat = Object.entries(parsed.inputs).filter(([, v]) => v.low === v.high);
+    if (flat.length > 0) {
+      throw new ContextError(`${flat.map(([k]) => k).join(", ")}: low and high are the same, so there is no range. Give a plausible range (low < high), or leave the input as it is in the file if you do not have it`);
+    }
+    const unsourced = Object.entries(parsed.inputs).filter(([, v]) => PLACEHOLDER.test(v.source.trim()));
+    if (unsourced.length > 0) {
+      throw new ContextError(`${unsourced.map(([k]) => k).join(", ")}: needs a real source (where the number came from). Leave an input you do not have as it is in the file instead of filling it with 0 or "missing"`);
+    }
+    if (Object.keys(parsed.inputs).length === 0) {
+      const keys = INPUTS.map((i) => i.key).join(", ");
+      throw new ContextError(`unit-economics needs at least one input under its own name (${keys}), each as { value, low, high, source } in the front matter; keep the file's existing layout`);
+    }
   }
   if (file === "claims" && front.claims !== undefined && !Array.isArray(front.claims)) throw new ContextError("claims must be a list");
   if (file === "brand-voice" && front.forbidden_phrases !== undefined && !Array.isArray(front.forbidden_phrases)) throw new ContextError("forbidden_phrases must be a list");
