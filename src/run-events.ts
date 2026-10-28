@@ -34,6 +34,8 @@ export const RunEventSchema = z.discriminatedUnion("type", [
     cost_known: z.boolean(),
     final_text: z.string(),
     proposals: z.number().int(),
+    // up to three next steps the agent offered with suggest_next; the app shows them as 1. 2. 3.
+    suggestions: z.array(z.object({ label: z.string(), prompt: z.string() })).max(3).optional(),
     pending: z.object({ call_id: z.string(), tool: z.string() }).optional(),
     error: z.object({ kind: z.string(), message: z.string() }).optional(),
   }),

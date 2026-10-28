@@ -6,7 +6,7 @@ import type { Diagnosis } from "../analysis/diagnose.js";
 import type { Snapshot } from "../analysis/scout.js";
 import type { SimulationResult } from "../analysis/simulate.js";
 import type { PeriodSummary } from "../analysis/summary.js";
-import { approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, modelErrorAnswer, performanceAnswer, summaryPerformanceAnswer, summaryWasteAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
+import { guideSuggestions, nextLines, approveAnswer, dataAnswer, errorAnswer, helpAnswer, languageAnswer, noDataAnswer, modelErrorAnswer, performanceAnswer, summaryPerformanceAnswer, summaryWasteAnswer, plansAnswer, renderAnswer, scaleAnswer, trustAnswer, wasteAnswer, type Answer, type Suggestion } from "./answers.js";
 import type { Dashboard } from "./dashboard.js";
 import type { IntentName, Language, Routed } from "./intent.js";
 import { classifyModelFailure, type ModelFailure } from "./model-errors.js";
@@ -182,6 +182,7 @@ async function driveAgent(argv: string[], ctx: AskContext): Promise<Reply> {
     return failure ? { ...reply(modelErrorAnswer(failure, lang), lang), modelFailure: failure } : reply(errorAnswer(lang, fin.error.message), lang);
   }
   const suggestions = helpAnswer(lang, false).next.slice(0, 4);
+  const offered: Suggestion[] = (fin.suggestions ?? []).map((s) => ({ label: s.label, intent: "help", prompt: s.prompt }));
   const asked = state.asked;
   if (fin.status === "needs_human" && fin.pending && state.runId !== null && asked !== null && asked.call_id === fin.pending.call_id && PROMPTABLE_TOOLS.includes(fin.pending.tool)) {
     const permission: PermissionRequest = { runId: state.runId, callId: fin.pending.call_id, tool: fin.pending.tool, summary: asked.summary, ...(asked.diff === undefined ? {} : { diff: asked.diff }) };
@@ -194,7 +195,10 @@ async function driveAgent(argv: string[], ctx: AskContext): Promise<Reply> {
     const tail = resume ? (lang === "ar" ? `تكملها من الطرفية:${resume}` : `You can continue it from a terminal:${resume}`) : "";
     return { text: [`# ${head}`, why, ...(fin.final_text.trim() ? ["", fin.final_text.trim()] : []), ...(tail ? ["", tail] : [])].join("\n"), suggestions };
   }
+  // what the agent offered; else, with no ad data yet, ways forward that need none; else the usual questions
+  const next = offered.length > 0 ? offered : ctx.dash.data.status !== "ok" ? guideSuggestions(lang) : [];
   const lines = [fin.final_text.trim()];
   if (fin.proposals > 0) lines.push("", lang === "ar" ? `جهّزت ${fin.proposals} خطة لتراجعها. اسألني \"ايش ينتظر موافقتي؟\"` : `I prepared ${fin.proposals} plan(s) for you to review. Ask me \"What's waiting for my approval?\"`);
-  return { text: lines.join("\n"), suggestions };
+  lines.push(...nextLines(next, lang));
+  return { text: lines.join("\n"), suggestions: next.length > 0 ? next : suggestions };
 }

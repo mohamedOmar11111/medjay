@@ -6,6 +6,7 @@ import { lintCopyTool } from "./lint-copy.js";
 import { listFilesTool } from "./list-files.js";
 import { proposePlanActionsTool } from "./propose-actions.js";
 import { readFileTool } from "./read-file.js";
+import { suggestNextTool } from "./suggest-next.js";
 
 export interface BuiltinServices {
   policy: Policy;
@@ -16,5 +17,5 @@ export interface BuiltinServices {
 
 /** The built-in tools. Read, draft and propose only: none of them can change a platform or a file. */
 export function createBuiltinTools(services: BuiltinServices): ToolDef[] {
-  return [readFileTool, listFilesTool, lintCopyTool(services.style), proposePlanActionsTool(services.policy, services.drafts)] as unknown as ToolDef[];
+  return [readFileTool, listFilesTool, lintCopyTool(services.style), proposePlanActionsTool(services.policy, services.drafts), suggestNextTool] as unknown as ToolDef[];
 }

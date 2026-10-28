@@ -41,7 +41,7 @@ describe("a normal run", () => {
     expect(first.system).toMatch(/Drop articles/); // diagnosis narration is terse
     expect(first.messages[0]).toMatchObject({ role: "user" });
     expect(first.messages.map((m) => m.content).join("\n")).toContain("Find wasted spend.");
-    expect(first.tools.map((t) => t.name).sort()).toEqual(["lint_copy", "list_files", "propose_plan_actions", "read_file"]);
+    expect(first.tools.map((t) => t.name).sort()).toEqual(["lint_copy", "list_files", "propose_plan_actions", "read_file", "suggest_next"]);
     const second = driver.calls[1]!.messages.map((m) => m.content).join("\n");
     expect(second).toContain("file:context/brand-voice.md");
     expect(second).toMatch(/as_of 20\d\d-/);

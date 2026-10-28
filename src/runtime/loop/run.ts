@@ -67,6 +67,8 @@ export interface RunResult {
   costKnown: boolean;
   pending?: PendingCall;
   proposals: unknown[];
+  /** Up to three next steps the agent offered with suggest_next. */
+  suggestions?: { label: string; prompt: string }[];
   error?: { kind: string; message: string };
 }
 
@@ -424,6 +426,7 @@ async function finish(ctx: Ctx, status: RunStatus, extra: { finalText?: string; 
     },
   });
   const proposals = collectProposals(steps.length === 0 ? [] : repo.steps(runId));
+  const suggestions = collectSuggestions(steps.length === 0 ? [] : repo.steps(runId));
   emit(ctx, {
     type: "run.finished",
     status,
@@ -433,6 +436,7 @@ async function finish(ctx: Ctx, status: RunStatus, extra: { finalText?: string; 
     cost_known: after.cost_known,
     final_text: finalText,
     proposals: proposals.length,
+    ...(suggestions.length > 0 ? { suggestions } : {}),
     ...(pending ? { pending: { call_id: pending.callId, tool: pending.tool } } : {}),
     ...(extra.error ? { error: extra.error } : {}),
   });
@@ -446,8 +450,22 @@ async function finish(ctx: Ctx, status: RunStatus, extra: { finalText?: string; 
     costKnown: after.cost_known,
     ...(pending ? { pending } : {}),
     proposals,
+    ...(suggestions.length > 0 ? { suggestions } : {}),
     ...(extra.error ? { error: extra.error } : {}),
   };
+}
+
+/** The options from the most recent successful suggest_next call (the tool has already checked them). */
+export function collectSuggestions(steps: StepRecord[]): { label: string; prompt: string }[] {
+  for (const step of [...steps].reverse()) {
+    for (const result of [...step.tool_results].reverse()) {
+      if (result.name === "suggest_next" && result.ok) {
+        const actions = (result.output as { actions?: unknown } | undefined)?.actions;
+        if (Array.isArray(actions)) return actions as { label: string; prompt: string }[];
+      }
+    }
+  }
+  return [];
 }
 
 /** The proposals from the most recent successful propose_plan_actions call. */

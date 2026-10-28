@@ -40,7 +40,7 @@ describe("built-in tool set", () => {
   it("has only read, draft and propose tools, and no tool that reads like a write", async () => {
     const { registry } = await setup();
     const specs = registry.specs();
-    expect(specs.map((s) => s.name)).toEqual(["lint_copy", "list_files", "propose_plan_actions", "read_file"]);
+    expect(specs.map((s) => s.name)).toEqual(["lint_copy", "list_files", "propose_plan_actions", "read_file", "suggest_next"]);
     expect(new Set(specs.map((s) => s.class))).toEqual(new Set(["read", "draft", "propose"]));
   });
 });

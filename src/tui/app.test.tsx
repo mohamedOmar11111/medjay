@@ -426,6 +426,52 @@ describe("the owner's OK for a change", () => {
   });
 });
 
+describe("numbered next steps from the agent", () => {
+  const ev = (e: RunEvent) => encodeEvent(e);
+  const FIN: RunEvent = {
+    type: "run.finished",
+    status: "completed",
+    steps: 2,
+    tokens: { input: 5, output: 5 },
+    cost_usd: 0.0001,
+    cost_known: true,
+    final_text: "Here is where we are.",
+    proposals: 0,
+    suggestions: [
+      { label: "Fill in your unit economics", prompt: "Ask me for my cost per click and price." },
+      { label: "Show me what to export", prompt: "Which reports should I export from Google Ads?" },
+    ],
+  };
+
+  it("lists them, and typing 2 sends the second one's request to the agent as the next message", async () => {
+    const t = mount();
+    await t.send("remember what we talked about");
+    t.calls[0]!.emit(ev(FIN));
+    t.calls[0]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("1. Fill in your unit economics");
+    expect(t.frame()).toContain("2. Show me what to export");
+    await t.send("2");
+    expect(t.calls).toHaveLength(2);
+    expect(t.calls[1]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
+    expect(t.calls[1]!.argv[5]).toContain("Which reports should I export from Google Ads?");
+    expect(t.frame()).toContain("Which reports should I export from Google Ads?"); // the owner sees what was asked in their name
+    t.unmount();
+  });
+
+  it("a number past the end gets the usual hint instead of a request", async () => {
+    const t = mount();
+    await t.send("remember what we talked about");
+    t.calls[0]!.emit(ev(FIN));
+    t.calls[0]!.finish(0);
+    await wait(150);
+    await t.send("3");
+    expect(t.calls).toHaveLength(1);
+    expect(t.frame()).toContain("Pick a number from 1 to 2");
+    t.unmount();
+  });
+});
+
 describe("greetings go to the model", () => {
   const ev = (e: RunEvent) => encodeEvent(e);
   const FIN = (over: Partial<Extract<RunEvent, { type: "run.finished" }>>): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "", proposals: 0, ...over });

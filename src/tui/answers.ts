@@ -14,6 +14,8 @@ export interface Suggestion {
   label: string;
   intent: IntentName;
   params?: Routed["params"];
+  /** Set when the agent offered it: typing its number sends this request to the agent as the next message. */
+  prompt?: string;
 }
 
 export interface Answer {
@@ -363,11 +365,23 @@ export const errorAnswer = (lang: Language, detail: string): Answer => ({
 });
 
 /** Plain text for the feed: first line is the headline, the last block is the numbered next steps. */
+/** The "What next? Type a number:" block, as feed lines. */
+export function nextLines(next: Suggestion[], lang: Language): string[] {
+  if (next.length === 0) return [];
+  return ["", `> ${pick(lang)("What next? Type a number:", "وبعدين؟ اكتب رقم:")}`, ...next.map((s, i) => `>   ${i + 1}. ${s.label}`)];
+}
+
 export function renderAnswer(a: Answer, lang: Language): string {
-  const lines = [`# ${a.headline}`, ...a.body.map((l) => (l.startsWith("•") || /^\d\)/.test(l) ? `  ${l}` : l))];
-  if (a.next.length > 0) {
-    lines.push("", `> ${pick(lang)("What next? Type a number:", "وبعدين؟ اكتب رقم:")}`);
-    a.next.forEach((s, i) => lines.push(`>   ${i + 1}. ${s.label}`));
-  }
+  const lines = [`# ${a.headline}`, ...a.body.map((l) => (l.startsWith("•") || /^\d\)/.test(l) ? `  ${l}` : l)), ...nextLines(a.next, lang)];
   return lines.join("\n");
+}
+
+/** What to offer when there is no ad data yet and the agent offered nothing: ways forward that need none. */
+export function guideSuggestions(lang: Language): Suggestion[] {
+  const t = pick(lang);
+  return [
+    { label: t("Tell me about your business so I can fill in your files", "احكِ لي عن نشاطك لأعبّي ملفاتك"), intent: "help", prompt: t("Ask me two or three questions about my business, one round at a time, and save my answers in my context files.", "اسألني سؤالين أو ثلاثة عن نشاطي، دفعة وحدة كل مرة، واحفظ إجاباتي في ملفات السياق.") },
+    { label: t("Show me which reports to export", "وريني أي تقارير أصدّر"), intent: "help", prompt: t("Which reports should I export from my ad accounts, and how? Give me the steps.", "أي تقارير أصدّر من حساباتي الإعلانية وكيف؟ أعطني الخطوات.") },
+    { label: t("Draft something for me without ad data", "اكتب لي شي بدون بيانات إعلانات"), intent: "help", prompt: t("Using what you know about my business, draft three ad headlines I could test.", "بناءً على ما تعرفه عن نشاطي، اكتب ثلاثة عناوين إعلانية أقدر أجربها.") },
+  ];
 }

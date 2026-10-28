@@ -469,6 +469,12 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         return void add("info", pick(lang)(`Pick a number from 1 to ${suggestions.current.length}, or just ask in your own words.`, `اختر رقماً من 1 إلى ${suggestions.current.length}، أو اسأل بكلامك.`));
       }
       const pickedNumber = /^[1-9]$/.test(toLatinDigits(text)) ? suggestions.current[Number(toLatinDigits(text)) - 1] : undefined;
+      if (pickedNumber?.prompt !== undefined) {
+        if (running.current) return void add("err", pick(lang)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
+        if (wsRef.current === null) return void add("err", pick(lang)("There's no workspace yet.", "ما في مساحة عمل للحين."));
+        add("info", `${pick(lang)("Asking", "أسأل")}: ${pickedNumber.prompt}`);
+        return ask(null, pickedNumber.prompt, lang);
+      }
       const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : pinnedRef.current !== null ? null : routeIntent(text); // a pinned skill means the agent answers
       if (running.current) return void add("err", pick(lang)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
       if (wsRef.current === null) return void add("err", pick(lang)("There's no workspace yet.", "ما في مساحة عمل للحين."));

@@ -199,6 +199,48 @@ describe("askAgent", () => {
   });
 });
 
+describe("next steps at the end of an answer", () => {
+  const finished = (over: Partial<Extract<RunEvent, { type: "run.finished" }>> = {}): RunEvent => ({ type: "run.finished", status: "completed", steps: 2, tokens: { input: 10, output: 5 }, cost_usd: 0.001, cost_known: true, final_text: "Here is where we are.", proposals: 0, ...over });
+  const stream = (...events: RunEvent[]) => events.map(encodeEvent).join("");
+  const offered = [
+    { label: "Fill in your unit economics", prompt: "Ask me for my cost per click and price." },
+    { label: "Show me what to export", prompt: "Which reports should I export from Google Ads?" },
+  ];
+  const dataOk = (c: ReturnType<typeof ctxWith>["ctx"]) => ({ ...c, dash: { ...c.dash, data: { status: "ok" as const, sources: [] } } });
+
+  it("shows what the agent offered as a numbered list, and a typed number can pick it", async () => {
+    const { ctx } = ctxWith(() => ({ out: stream(finished({ suggestions: offered })) }));
+    const r = await askAgent("what now?", ctx);
+    expect(r.text).toContain("Here is where we are.");
+    expect(r.text).toMatch(/What next\? Type a number:\n>\s+1\. Fill in your unit economics\n>\s+2\. Show me what to export/);
+    expect(r.suggestions).toEqual([
+      { label: "Fill in your unit economics", intent: "help", prompt: "Ask me for my cost per click and price." },
+      { label: "Show me what to export", intent: "help", prompt: "Which reports should I export from Google Ads?" },
+    ]);
+  });
+
+  it("uses the Arabic heading for an Arabic question", async () => {
+    const { ctx } = ctxWith(() => ({ out: stream(finished({ suggestions: offered })) }), "ar");
+    expect((await askAgent("وش أسوي؟", ctx)).text).toContain("وبعدين؟ اكتب رقم:");
+  });
+
+  it("with no offer from the agent and no data yet, falls back to ways forward that need no data, never the generic ads menu", async () => {
+    const { ctx } = ctxWith(() => ({ out: stream(finished({})) }));
+    const r = await askAgent("hello", ctx);
+    expect(r.suggestions.length).toBe(3);
+    expect(r.suggestions.every((s) => typeof s.prompt === "string" && s.prompt.length > 0)).toBe(true);
+    expect(r.text).toMatch(/1\. .*business/i);
+    expect(r.text).not.toMatch(/How are my ads doing\?|What's wasting money\?/);
+  });
+
+  it("with data in place and no offer, keeps the usual suggestions", async () => {
+    const { ctx } = ctxWith(() => ({ out: stream(finished({})) }));
+    const r = await askAgent("hello", dataOk(ctx));
+    expect(r.suggestions.map((s) => s.intent)).toContain("performance");
+    expect(r.suggestions.some((s) => s.prompt !== undefined)).toBe(false);
+  });
+});
+
 describe("a change that needs the owner's OK", () => {
   const finished = (over: Partial<Extract<RunEvent, { type: "run.finished" }>> = {}): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 10, output: 5 }, cost_usd: 0.001, cost_known: true, final_text: "", proposals: 0, ...over });
   const stream = (...events: RunEvent[]) => events.map(encodeEvent).join("");
