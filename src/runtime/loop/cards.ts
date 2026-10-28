@@ -102,7 +102,8 @@ export function cardFor(tool: string, input: unknown, output: unknown, ok: boole
       return { label, summary: `economics, claims, offers · ${plural(Array.isArray(out.tactics) ? out.tactics.length : 0, "tactic")}` };
     case "growth_simulate": {
       const result = rec(out.result);
-      if (result.status === "ok") return { label, summary: `${Math.round(num(rec(result.monte_carlo).p_positive) * 100)}% chance it pays off` };
+      if (result.status === "ok") return { label, summary: `${result.mode === "target_model" ? "target model, not your results · " : ""}${Math.round(num(rec(result.monte_carlo).p_positive) * 100)}% chance it pays off` };
+      if (result.status === "template_not_filled") return { label, summary: `unit economics not filled in (${plural(Array.isArray(result.missing) ? result.missing.length : 0, "number")})` };
       if (result.status === "insufficient_inputs") return { label, summary: `missing ${plural(Array.isArray(result.problems) ? result.problems.length : 0, "number")}` };
       if (result.status === "no_data_yet") return { label, summary: "no data yet" };
       return { label, summary: String(result.status ?? "done") };

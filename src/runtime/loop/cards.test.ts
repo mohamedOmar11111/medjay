@@ -77,6 +77,8 @@ describe("cardFor an expected 'no data yet' state", () => {
     expect(cardFor("growth_scout", {}, { status: "no_data_yet", files_found: 0 }, true)).toEqual({ label: "Truth check", summary: "no data yet" });
     expect(cardFor("growth_diagnose", {}, { status: "no_data_yet" }, true).summary).toBe("no data yet");
     expect(cardFor("growth_simulate", {}, { result: { status: "no_data_yet" } }, true).summary).toBe("no data yet");
+    expect(cardFor("growth_simulate", {}, { result: { status: "ok", mode: "target_model", monte_carlo: { p_positive: 0.5 } } }, true).summary).toBe("target model, not your results · 50% chance it pays off");
+    expect(cardFor("growth_simulate", {}, { result: { status: "template_not_filled", missing: [{}, {}, {}] } }, true).summary).toBe("unit economics not filled in (3 numbers)");
   });
   it("says how many files could not be read when there are some", () => {
     expect(cardFor("growth_scout", {}, { status: "no_data_yet", files_found: 2, unmatched: [{}, {}] }, true).summary).toBe("no data yet · 2 files could not be read");

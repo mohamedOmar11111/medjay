@@ -108,6 +108,39 @@ describe("growth tools", () => {
     expect(port.calls).toEqual([]);
   });
 
+  it("a simulation with a given spend needs no scout: it is asked to model the target only, never to read data", async () => {
+    const port = fakePort();
+    const seen: unknown[] = [];
+    const inner = port.simulate.bind(port);
+    port.simulate = async (input: Parameters<typeof inner>[0]) => {
+      seen.push(input);
+      return inner(input);
+    };
+    const { registry, run } = await setup(port);
+    expect(await registry.invoke({ name: "growth_simulate", input: { spend: 40_000, scale_pct: 15 } }, run("run_t"))).toMatchObject({ ok: true });
+    expect(seen).toEqual([{ spend: 40_000, scale_pct: 15, target_model: true }]);
+  });
+
+  it("after a scout, a simulation reads the data as before (no target-model flag)", async () => {
+    const port = fakePort();
+    const seen: unknown[] = [];
+    const inner = port.simulate.bind(port);
+    port.simulate = async (input: Parameters<typeof inner>[0]) => {
+      seen.push(input);
+      return inner(input);
+    };
+    const { registry, run } = await setup(port);
+    await registry.invoke({ name: "growth_scout", input: {} }, run("run_u"));
+    await registry.invoke({ name: "growth_simulate", input: { spend: 40_000 } }, run("run_u"));
+    expect(seen).toEqual([{ spend: 40_000 }]);
+  });
+
+  it("a simulation without a spend and without a scout is still refused", async () => {
+    const { registry, run } = await setup(fakePort());
+    const r = await registry.invoke({ name: "growth_simulate", input: { scale_pct: 20 } }, run("run_v"));
+    expect((r as { error: { message: string } }).error.message).toMatch(/call growth_scout first/);
+  });
+
   it("a scout in one run does not unlock another run", async () => {
     const { registry, run } = await setup(fakePort());
     await registry.invoke({ name: "growth_scout", input: {} }, run("run_c"));

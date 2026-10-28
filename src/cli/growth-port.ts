@@ -49,6 +49,33 @@ async function orNoData<T>(run: () => Promise<T>): Promise<T | ReturnType<typeof
   }
 }
 
+const TARGET_MODEL_NOTICE =
+  "This is a target model: it is built only from the unit economics in context/unit-economics.md and the spend given, not from your actual ad results (none have been imported). Read the ranges as what your numbers would need to be, and run it again once real exports are in.";
+
+/** Model a given spend from the owner's unit economics alone. */
+async function targetModel(dir: string, input: { spend?: number; scale_pct?: number; seed?: number; draws?: number }): Promise<unknown> {
+  const { config } = await loadWorkspace(dir);
+  const economics = await loadUnitEconomics(dir);
+  const baseCurrency = config.workspace.base_currency;
+  if (economics.problems.length === 0 && economics.currency !== baseCurrency) {
+    return { status: "currency_mismatch", message: `context/unit-economics.md is in ${economics.currency} but the workspace base currency is ${baseCurrency}; Medjay never converts silently` };
+  }
+  if (Object.keys(economics.inputs).length === 0 && economics.problems.every((p) => p.problem === "missing")) {
+    return {
+      status: "template_not_filled",
+      message: "context/unit-economics.md has not been filled in yet, so there is nothing to model. Ask the owner for these numbers (each as a range: value, low, high and where it comes from), then save them with context_update.",
+      missing: economics.problems.filter((p) => p.input !== "currency").map((p) => ({ input: p.input, problem: p.problem, message: p.message })),
+    };
+  }
+  const result = simulate(economics, {
+    spend: input.spend as number,
+    ...(input.scale_pct === undefined ? {} : { scalePct: input.scale_pct }),
+    ...(input.seed === undefined ? {} : { seed: input.seed }),
+    ...(input.draws === undefined ? {} : { draws: input.draws }),
+  });
+  return result.status === "ok" ? { ...result, mode: "target_model", notice: TARGET_MODEL_NOTICE, spend_used: input.spend, spend_basis: "given" } : result;
+}
+
 export function createGrowthPort(dir: string): GrowthPort {
   const inner: GrowthPort = {
     readiness: () => readinessOf(dir),
@@ -137,6 +164,15 @@ export function createGrowthPort(dir: string): GrowthPort {
     diagnose: (days) => orNoData(() => inner.diagnose(days)),
     context: () => inner.context(),
     readiness: () => inner.readiness(),
-    simulate: (input) => orNoData(() => inner.simulate(input)),
+    async simulate(input) {
+      if (input.target_model && input.spend !== undefined) return targetModel(dir, input);
+      try {
+        return await inner.simulate(input);
+      } catch (error) {
+        // no data yet, but a spend to test: model it from the unit economics alone
+        if (error instanceof NoDataError) return input.spend !== undefined ? targetModel(dir, input) : noDataYet(error);
+        throw error;
+      }
+    },
   };
 }

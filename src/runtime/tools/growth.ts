@@ -16,7 +16,8 @@ export interface GrowthPort {
   diagnose(days: number): Promise<unknown>;
   /** The owner's unit economics, claims and offers, and the tested-tactics log. */
   context(): Promise<unknown>;
-  simulate(input: { spend?: number; scale_pct?: number; seed?: number; draws?: number; days?: number }): Promise<unknown>;
+  /** `target_model`: model the given spend from the unit economics alone, reading no ad data (set by the tool when no scout was done). */
+  simulate(input: { spend?: number; scale_pct?: number; seed?: number; draws?: number; days?: number; target_model?: boolean }): Promise<unknown>;
   /** What is ready in this workspace and what is missing: context files, data, connections, limits, export guides. */
   readiness(): Promise<unknown>;
 }
@@ -81,7 +82,7 @@ export function growthTools(port: GrowthPort): ToolDef[] {
   const simulateTool = defineTool({
     name: "growth_simulate",
     description:
-      "Funnel math for a change in spend: break-even, a seeded Monte Carlo of the chance the change pays off, and what it is most sensitive to. Use it before recommending any budget increase; if the owner's unit economics are incomplete it says which numbers are missing instead of guessing. Needs growth_scout first.",
+      "Funnel math for a change in spend: break-even, a seeded Monte Carlo of the chance the change pays off, and what it is most sensitive to. Use it before recommending any budget increase; if the owner's unit economics are incomplete it says which numbers are missing instead of guessing. With ad data it needs growth_scout first. With no data yet, pass spend: it then models that spend from the owner's unit economics alone and labels the result a target model (what the numbers would need to be), not a forecast from their results.",
     class: "read",
     input: z
       .object({
@@ -94,8 +95,16 @@ export function growthTools(port: GrowthPort): ToolDef[] {
       .strict(),
     timeoutMs: 120_000,
     execute: async (input, ctx) => {
-      const snapshotId = await requireScout(ctx.runId);
-      return { snapshot_id: snapshotId, as_of: ctx.now().toISOString(), source: "growth_simulate", result: await port.simulate(input) };
+      // A spend the person gave can be modelled from their unit economics alone, with no ad data and no scout.
+      // Without one, the simulation reads the data, so it needs the scout like every other analysis.
+      let snapshotId: string | null = null;
+      try {
+        snapshotId = await requireScout(ctx.runId);
+      } catch (error) {
+        if (input.spend === undefined) throw error;
+      }
+      const result = await port.simulate(snapshotId === null ? { ...input, target_model: true } : input);
+      return { ...(snapshotId === null ? {} : { snapshot_id: snapshotId }), as_of: ctx.now().toISOString(), source: "growth_simulate", result };
     },
   });
 
