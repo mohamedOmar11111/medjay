@@ -501,6 +501,39 @@ describe("greetings go to the model", () => {
   });
 });
 
+describe("first run: shortcuts typed during setup", () => {
+  it("never takes a shortcut for the business name: it says shortcuts wait, and keeps asking for the name", async () => {
+    const t = mount({ workspaceDir: null });
+    await wait(60);
+    await t.send("/ledger");
+    expect(t.frame()).toContain("Shortcuts work once your workspace is set up");
+    expect(t.frame()).not.toContain("What best describes you?");
+    await t.send("Etlaala KSA");
+    expect(t.frame()).toContain("What best describes you?");
+    t.unmount();
+  });
+
+  it("/connect works before a workspace exists: it asks for the key hidden, stores it, and setup carries on afterwards", async () => {
+    const t = mount({ workspaceDir: null });
+    await wait(60);
+    await t.send("/connect google");
+    expect(t.frame()).toContain("Paste your google key now");
+    expect(t.frame()).not.toContain("What best describes you?");
+    await t.type("AIza-secret-key");
+    expect(t.frame()).not.toContain("AIza-secret-key");
+    t.stdin.write("\r");
+    await wait(60);
+    expect(t.calls[0]!.argv).toEqual(["auth", "set", "google"]);
+    expect(t.calls[0]!.stdin).toBe("AIza-secret-key");
+    t.calls[0]!.finish(0);
+    await wait(80);
+    expect(t.frame()).toContain("Key stored");
+    await t.send("Etlaala KSA");
+    expect(t.frame()).toContain("What best describes you?"); // still on the setup questions, name not eaten by the command
+    t.unmount();
+  });
+});
+
 describe("first run", () => {
   it("asks setup questions in English and Arabic, then creates the workspace through the CLI and starts using it", async () => {
     const onWorkspace = vi.fn();

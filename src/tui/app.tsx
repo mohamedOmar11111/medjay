@@ -461,7 +461,13 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
       setHistory((h) => (h[h.length - 1] === text ? h : [...h, text]));
       setHistoryAt(null);
       add("user", text);
-      if (onboardRef.current !== null) return onboard(text);
+      if (onboardRef.current !== null) {
+        // During setup a "/connect <provider>" stores the key now (setup then picks the provider that has one);
+        // any other shortcut waits, and is never taken for the business name.
+        if (/^\/connect(?:\s|$)/i.test(text)) return runShortcut(text);
+        if (text.startsWith("/")) return void add("info", pick(langRef.current)("Shortcuts work once your workspace is set up. For now, answer the question above. (/connect <provider> works now if you want to add your AI key first.)", "الاختصارات تشتغل بعد تجهيز مساحة العمل. الحين جاوب على السؤال أعلاه. (/connect <provider> يشتغل الحين لو تبي تضيف مفتاح الذكاء الاصطناعي أولاً.)"));
+        return onboard(text);
+      }
       if (text.startsWith("/")) return runShortcut(text);
       const lang: Language = hasLetters(text) ? detectLanguage(text) : langRef.current;
       langRef.current = lang;
