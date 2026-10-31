@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initWorkspace } from "../workspace/init.js";
 import { readinessOf } from "./readiness.js";
@@ -73,5 +73,14 @@ describe("workspace readiness", () => {
     await writeFile(join(dir, "ingestion.mappings.yaml"), "sources: []\n", "utf8");
     const r = await readinessOf(dir);
     expect(r.data).toMatchObject({ files_found: 2, newest_file: "2026-10-22", mapping_exists: true });
+  });
+});
+
+describe("readiness gives the model absolute places to point the owner to", () => {
+  it("names the workspace folder, each context file's full path and the full dropzone path", async () => {
+    const r = await readinessOf(dir);
+    expect(r.workspace.folder).toBe(resolve(dir));
+    expect(r.context.files.map((f) => f.path)).toEqual(["unit-economics.md", "offer-matrix.md", "brand-voice.md", "claims.md"].map((n) => join(resolve(dir), "context", n)));
+    expect(r.data.dropzone).toBe(join(resolve(dir), "data", "imports"));
   });
 });

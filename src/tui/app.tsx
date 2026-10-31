@@ -14,7 +14,8 @@ import { buildFeedLines, splashText, type Entry, type EntryKind, type FeedTone }
 import { detectLanguage, routeIntent, toLatinDigits, type Language, type Routed } from "./intent.js";
 import { classifyModelFailure } from "./model-errors.js";
 import type { RunEvent } from "../run-events.js";
-import { onboardingDone, startOnboarding, stepOnboarding, type OnboardState } from "./onboarding.js";
+import { startOnboarding, stepOnboarding, type OnboardState } from "./onboarding.js";
+import { connectGuide, hasModelKey, kickoffPrompt, readyText } from "./setup-guide.js";
 import type { Runner, RunHandle } from "./runner.js";
 import { COMPACT_BANNER } from "./splash.js";
 import { lastWindow } from "./text.js";
@@ -33,6 +34,11 @@ export interface AppProps {
   onWorkspace?: (dir: string) => void;
   /** How long a waiting change is left unanswered before it is declined (default 2 minutes). */
   permissionTimeoutMs?: number;
+  /**
+   * The AI model answers free text and leads the setup (the default). Set false for the older behaviour,
+   * where fixed analyses answer the questions they recognise.
+   */
+  agentFirst?: boolean;
 }
 
 const SIDEBAR_WIDTH = 30;
@@ -91,7 +97,7 @@ function useTerminalSize(override?: { cols: number; rows: number }): { cols: num
 
 const hasLetters = (text: string) => /[A-Za-z؀-ۿ]/.test(text);
 
-export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit, onWorkspace, permissionTimeoutMs = PERMISSION_TIMEOUT_MS }: AppProps) {
+export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOverride, onExit, onWorkspace, permissionTimeoutMs = PERMISSION_TIMEOUT_MS, agentFirst = true }: AppProps) {
   const { exit } = useApp();
   const { cols, rows } = useTerminalSize(sizeOverride);
   const nextId = useRef(10);
@@ -132,6 +138,8 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   /** A change the agent wants to make, waiting for A (allow once) or D (decline). */
   const [permission, setPermission] = useState<PermissionRequest | null>(null);
   const permissionRef = useRef<PermissionRequest | null>(null);
+  /** Set after setup when there was no model key yet: the model starts the setup as soon as a key works. */
+  const kickoffPending = useRef(false);
   const [secretLen, setSecretLen] = useState(0);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
@@ -278,7 +286,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
 
   /** One analysis or agent question, start to finish. */
   const ask = useCallback(
-    (routed: Routed | null, text: string, lang: Language) => {
+    (routed: Routed | null, text: string, lang: Language, fallback?: Routed) => {
       const dir = wsRef.current;
       if (dir === null) return;
       const viaAgent = routed === null || routed.intent === "greet";
@@ -293,10 +301,11 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
           if (routed !== null && !THINKS.includes(routed.intent)) await refresh();
           const ctx = agentContext(dir, lang);
           let reply = routed === null ? await askAgent(pinnedSkillPrompt(pinnedRef.current, text), ctx) : routed.intent === "greet" ? await askAgent(text, ctx, "chat") : await answerIntent(routed, ctx);
-          if (routed?.intent === "greet" && reply.modelFailure) {
-            // no usable model: the fixed greeting still works, plus the one thing to do about it
+          const canned = routed?.intent === "greet" ? routed : fallback;
+          if (canned && reply.modelFailure) {
+            // no usable model: the fixed answer still works, plus the one thing to do about it
             const hint = modelErrorAnswer(reply.modelFailure, lang);
-            reply = await answerIntent(routed, ctx);
+            reply = await answerIntent(canned, ctx);
             add("info", [hint.headline, hint.body[0] ?? ""].join(" ").trim());
           }
           if (routed?.intent === "language" && routed.params.language) langRef.current = routed.params.language;
@@ -347,16 +356,25 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         setBusy(pick(lang)("choosing your AI model", "أختار نموذج الذكاء الاصطناعي"));
         void tracked(["models", "use", "auto", "--workspace", dir], () => undefined).done.then(() => {
           running.current = null;
-          setBusy(null);
-          const [head = "", ...rest] = onboardingDone(dir, lang).split("\n");
-          const next = helpAnswer(lang, false).next.filter((s) => s.intent === "performance" || s.intent === "data");
-          suggestions.current = next;
-          add("answer", renderAnswer({ headline: head, body: rest, next }, lang));
-          void refresh(dir);
+          let status = "";
+          void tracked(["auth", "status"], (chunk, stream) => void (stream === "out" && (status += chunk))).done.then(() => {
+            running.current = null;
+            setBusy(null);
+            suggestions.current = [];
+            add("answer", readyText(dir, lang));
+            void refresh(dir);
+            if (hasModelKey(status)) {
+              add("info", pick(lang)("Handing your setup to the AI model. It will guide you step by step.", "أسلّم إعدادك للنموذج. سيرشدك خطوة خطوة."));
+              ask(null, kickoffPrompt(lang), lang);
+            } else {
+              kickoffPending.current = true;
+              add("answer", connectGuide(lang));
+            }
+          });
         });
       });
     },
-    [add, baseFolder, refresh, tracked],
+    [add, ask, baseFolder, refresh, tracked],
   );
 
   /** Store the pasted key through the CLI (stdin only), then prove it works with one tiny question. */
@@ -396,12 +414,17 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
             const failure = probe !== 0 ? classifyModelFailure(out) : null;
             if (failure) return void add("answer", renderAnswer(modelErrorAnswer(failure, lang), lang));
             add("info", pick(lang)(`Connected: ${provider} works.`, `تم الاتصال: ${provider} يشتغل.`));
+            if (kickoffPending.current) {
+              kickoffPending.current = false;
+              add("info", pick(lang)("Handing your setup to the AI model. It will guide you step by step.", "أسلّم إعدادك للنموذج. سيرشدك خطوة خطوة."));
+              ask(null, kickoffPrompt(lang), lang);
+            }
           });
 
         });
       });
     },
-    [add, tracked],
+    [add, ask, tracked],
   );
 
   const runShortcut = useCallback(
@@ -481,12 +504,17 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         add("info", `${pick(lang)("Asking", "أسأل")}: ${pickedNumber.prompt}`);
         return ask(null, pickedNumber.prompt, lang);
       }
-      const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : pinnedRef.current !== null ? null : routeIntent(text); // a pinned skill means the agent answers
+      const classic = pickedNumber || pinnedRef.current !== null ? null : routeIntent(text); // a pinned skill means the agent answers
+      // The model answers free text. Fixed answers stay for a typed number, for refusing to approve in chat, for
+      // switching language and for greetings; and they are the fallback when no model is connected.
+      const fixed = classic !== null && (!agentFirst || classic.intent === "approve" || classic.intent === "language" || classic.intent === "greet");
+      const routed: Routed | null = pickedNumber ? { intent: pickedNumber.intent, params: pickedNumber.params ?? {} } : fixed ? classic : null;
+      const fallback = !fixed && classic !== null ? classic : undefined;
       if (running.current) return void add("err", pick(lang)("I'm still working on something; press Esc to stop it first.", "للحين أشتغل على شي؛ اضغط Esc لإيقافه أولاً."));
       if (wsRef.current === null) return void add("err", pick(lang)("There's no workspace yet.", "ما في مساحة عمل للحين."));
-      ask(routed, text, lang);
+      ask(routed, text, lang, fallback);
     },
-    [add, ask, onboard, runShortcut],
+    [add, agentFirst, ask, onboard, runShortcut],
   );
 
   const feedWidth = cols >= MIN_COLS_FOR_SIDEBAR ? cols - SIDEBAR_WIDTH - 6 : cols - 4;

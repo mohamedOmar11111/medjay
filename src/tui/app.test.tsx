@@ -6,7 +6,7 @@ import { buildFeedLines } from "./feed.js";
 import type { Runner } from "./runner.js";
 import { encodeEvent, type RunEvent } from "../run-events.js";
 
-const wait = (ms = 70) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms = 140) => new Promise((r) => setTimeout(r, ms));
 
 const DASH: Dashboard = {
   ...emptyDashboard(),
@@ -52,7 +52,7 @@ function mount(over: Partial<AppProps> = {}) {
   const { runner, calls } = fakeRunner();
   const load = vi.fn(async (_dir: string) => DASH);
   const onExit = vi.fn();
-  const app = render(<App workspaceDir="/work/etl" baseDir="/base" runner={runner} load={load} version="0.1.1" size={{ cols: 110, rows: 40 }} onExit={onExit} {...over} />);
+  const app = render(<App workspaceDir="/work/etl" baseDir="/base" runner={runner} load={load} version="0.1.1" size={{ cols: 110, rows: 40 }} onExit={onExit} agentFirst={false} {...over} />);
   const type = async (text: string) => {
     app.stdin.write(text);
     await wait();
@@ -472,6 +472,99 @@ describe("numbered next steps from the agent", () => {
   });
 });
 
+describe("the model takes over", () => {
+  const ev = (e: RunEvent) => encodeEvent(e);
+  const DONE = (text: string): RunEvent => ({ type: "run.finished", status: "completed", steps: 2, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: text, proposals: 0 });
+  const NOKEY: RunEvent = { type: "run.finished", status: "failed", steps: 0, tokens: { input: 0, output: 0 }, cost_usd: 0, cost_known: true, final_text: "", proposals: 0, error: { kind: "auth", message: 'all model targets failed: google/gemini-2.5-flash (auth: no API key for google: store one with "mdj auth set google")' } };
+
+  it("sends a free question to the agent first, not to a fixed analysis", async () => {
+    const t = mount({ agentFirst: true });
+    await t.send("How are my ads doing?");
+    expect(t.calls[0]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
+    expect(t.calls[0]!.argv[5]).toContain("How are my ads doing?");
+    t.calls[0]!.emit(ev(DONE("You have no ad data yet. Step 1: open Google Ads.")));
+    t.calls[0]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("Step 1: open Google Ads.");
+    t.unmount();
+  });
+
+  it("still refuses to approve or apply anything in chat", async () => {
+    const t = mount({ agentFirst: true });
+    await t.send("approve plan 1");
+    expect(t.calls).toHaveLength(0);
+    expect(t.frame()).toContain("I can't approve or apply changes from here, on purpose.");
+    t.unmount();
+  });
+
+  it("with no model key, falls back to the fixed answer and says how to connect one", async () => {
+    const t = mount({ agentFirst: true });
+    await t.send("How are my ads doing?");
+    t.calls[0]!.emit(ev(NOKEY));
+    t.calls[0]!.finish(1);
+    await wait(150);
+    expect(t.calls[1]!.argv[0]).toBe("scout");
+    t.calls[1]!.emit(JSON.stringify(SNAPSHOT));
+    t.calls[1]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("/connect google");
+    expect(t.frame()).toContain("Between 10–16 Oct you spent SAR 26,880");
+    t.unmount();
+  });
+
+  async function created(t: ReturnType<typeof mount>, status: string) {
+    await t.send("Shop");
+    await t.send("1");
+    await t.send("AED");
+    await t.send("yes");
+    t.calls[0]!.finish(0);
+    await wait(80);
+    t.calls[1]!.finish(0); // models use auto
+    await wait(80);
+    t.calls[2]!.emit(status); // auth status
+    t.calls[2]!.finish(0);
+    await wait(100);
+  }
+
+  it("right after setup, with a key stored, hands the setup to the model as the owner's own request", async () => {
+    const t = mount({ workspaceDir: null, agentFirst: true });
+    await created(t, "anthropic              not set\ngoogle                 keychain\n");
+    expect(t.frame()).toContain("Your workspace is ready");
+    expect(t.calls[3]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
+    expect(t.calls[3]!.argv[5]).toContain("workspace_readiness");
+    expect(t.calls[3]!.argv[5]).toMatch(/where to go/);
+    t.calls[3]!.emit(ev(DONE("Welcome! Step 1: ...")));
+    t.calls[3]!.finish(0);
+    await wait(150);
+    expect(t.frame()).toContain("Welcome! Step 1");
+    t.unmount();
+  });
+
+  it("with no key yet, explains how to get one, then starts the setup by itself once /connect works", async () => {
+    const t = mount({ workspaceDir: null, agentFirst: true });
+    await created(t, "google                 not set\n");
+    expect(t.frame()).toContain("aistudio.google.com/apikey");
+    expect(t.calls).toHaveLength(3); // nothing asked of the model yet
+    await t.send("/connect google");
+    await t.type("AIza-secret");
+    t.stdin.write("\r");
+    await wait(60);
+    expect(t.calls[3]!.argv).toEqual(["auth", "set", "google"]);
+    t.calls[3]!.finish(0);
+    await wait(80);
+    expect(t.calls[4]!.argv.slice(0, 3)).toEqual(["models", "use", "google"]);
+    t.calls[4]!.emit("all model slots now use google/gemini-2.5-flash\n");
+    t.calls[4]!.finish(0);
+    await wait(80);
+    t.calls[5]!.emit("OK\n"); // the key test
+    t.calls[5]!.finish(0);
+    await wait(100);
+    expect(t.calls[6]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
+    expect(t.calls[6]!.argv[5]).toContain("workspace_readiness");
+    t.unmount();
+  });
+});
+
 describe("greetings go to the model", () => {
   const ev = (e: RunEvent) => encodeEvent(e);
   const FIN = (over: Partial<Extract<RunEvent, { type: "run.finished" }>>): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: "", proposals: 0, ...over });
@@ -556,13 +649,17 @@ describe("first run", () => {
     expect(t.calls[1]!.argv).toEqual(["models", "use", "auto", "--workspace", expect.stringContaining("etlaala-ksa")]);
     t.calls[1]!.finish(0);
     await wait(80);
-    expect(t.frame()).toContain("Your workspace is ready.");
-    expect(t.frame()).toContain("data");
-    expect(t.frame()).toContain("/connect");
+    expect(t.calls[2]!.argv).toEqual(["auth", "status"]);
+    t.calls[2]!.emit("anthropic              not set\ngoogle                 not set\n");
+    t.calls[2]!.finish(0);
+    await wait(80);
+    expect(t.frame()).toContain("Your workspace is ready");
+    expect(t.frame()).toContain("aistudio.google.com/apikey"); // no model key yet: how to get one, step by step
+    expect(t.frame()).toContain("/connect google");
     expect(onWorkspace).toHaveBeenCalledWith(expect.stringContaining("etlaala-ksa"));
     expect(t.load).toHaveBeenCalledWith(expect.stringContaining("etlaala-ksa"));
     await t.send("how are my ads doing?");
-    expect(t.calls[2]!.argv[0]).toBe("scout");
+    expect(t.calls[3]!.argv[0]).toBe("scout");
     t.unmount();
   });
 

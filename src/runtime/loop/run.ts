@@ -226,7 +226,7 @@ export async function drive(ctx: Ctx): Promise<RunResult> {
       for (const f of result.failovers) {
         await deps.ledger.append({ actor: `agent:${runId}`, event: "model.failover", payload: { run_id: runId, step: stepIndex, from: f.from, to: target, kind: f.kind, message: f.message } });
       }
-      const text = ctx.redactor.redact(result.text).text;
+      const text = cleanAnswer(ctx.redactor.redact(result.text).text);
       const calls: StoredCall[] = result.toolCalls.map((c, i) => ({ call_id: `c${stepIndex}_${i + 1}`, name: c.name, input: redactValue(ctx.redactor, c.input) }));
 
       // Phase 1: the model has answered and been billed. Save it before touching any tool.
@@ -261,11 +261,28 @@ export async function drive(ctx: Ctx): Promise<RunResult> {
       const outcome = await executeCalls(ctx, step);
       if (outcome === "aborted") return finish(ctx, "aborted");
       if (outcome === "needs_human") return finish(ctx, "needs_human");
+      // A turn that wrote its answer and offered next steps is the last turn. Another model call would only repeat itself.
+      if (text.trim() !== "" && offersNextSteps(repo.steps(runId).find((s) => s.step_index === stepIndex))) return finish(ctx, "completed", { finalText: text });
     }
   } catch (error) {
     // Anything unexpected still ends the run cleanly, with what was saved intact.
     return finish(ctx, "failed", { error: { kind: "internal", message: errorMessage(error) } });
   }
+}
+
+/** True when the step's only tool calls are suggest_next and every one of them was accepted. */
+function offersNextSteps(step: StepRecord | undefined): boolean {
+  if (!step || step.tool_calls.length === 0) return false;
+  return step.tool_calls.every((c) => c.name === "suggest_next" && step.tool_results.some((r) => r.call_id === c.call_id && r.status === "done" && r.ok));
+}
+
+/** Some models copy the history log's "Tool calls: ..." line into their answer; the owner should never see it. */
+export function cleanAnswer(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*Tool calls?:/i.test(line))
+    .join("\n")
+    .trimEnd();
 }
 
 function capStop(header: RunHeader): RunStatus | undefined {

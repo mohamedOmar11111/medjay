@@ -1,7 +1,7 @@
 // What is ready in a workspace and what is missing, as plain facts for the agent's Guide step. The runtime
 // cannot import the analysis layers, so this adapter lives here and reaches the agent through the growth port.
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadUnitEconomics } from "../analysis/simulate.js";
 import { exportGuideSummaries, GUIDE_NOTICE } from "../guide/exports.js";
@@ -77,7 +77,7 @@ async function dataState(dir: string, dropzoneDir: string) {
   for (const name of names) newest = Math.max(newest, (await stat(join(dropzoneDir, name))).mtimeMs);
   const mapping = await stat(join(dir, "ingestion.mappings.yaml")).then((s) => s.isFile(), () => false);
   return {
-    dropzone: dropzoneDir,
+    dropzone: resolve(dropzoneDir),
     files_found: names.length,
     newest_file: names.length === 0 ? null : new Date(newest).toISOString().slice(0, 10),
     mapping_exists: mapping,
@@ -90,8 +90,9 @@ export async function readinessOf(dir: string) {
   const files = [await unitEconomicsState(dir), ...(await Promise.all(TEXT_FILES.map((f) => textFileState(dir, f))))];
   const cap = policy.limits.max_total_spend_cap;
   return {
-    workspace: { id: config.workspace.id, name: config.workspace.name, currency: config.workspace.base_currency, language: config.localization.languages.primary },
-    context: { files, ready_count: files.filter((f) => f.status === "ready").length },
+    workspace: { id: config.workspace.id, name: config.workspace.name, currency: config.workspace.base_currency, language: config.localization.languages.primary, folder: resolve(dir) },
+    // each file also carries its full path, so the agent can tell the owner exactly where it lives
+    context: { files: files.map((f) => ({ ...f, path: join(resolve(dir), f.file) })), ready_count: files.filter((f) => f.status === "ready").length },
     data: await dataState(dir, dropzoneDir),
     /** Live connections. None exist yet; the field is here so the answer has the same shape when they do. */
     connections: [] as string[],

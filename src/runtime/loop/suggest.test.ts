@@ -57,3 +57,43 @@ describe("suggestions at the end of a run", () => {
     expect(parseEventLine(JSON.stringify({ ...base, suggestions: [{ label: "x" }] }))).toBeNull();
   });
 });
+
+describe("offering next steps ends the run", () => {
+  it("a turn that writes its answer and calls suggest_next is the last turn: no second model call, the text is the answer", async () => {
+    const driver = scriptedDriver([{ text: "Step 1: open Google Ads. Tell me when the file is saved.", calls: [suggest(1, 2)] }, { text: "I will repeat myself." }]);
+    const events: RunEvent[] = [];
+    const result = await startRun({ ...h.deps, onEvent: (e) => void events.push(e), driver }, input);
+    expect(driver.calls).toHaveLength(1);
+    expect(result).toMatchObject({ status: "completed", steps: 1, finalText: "Step 1: open Google Ads. Tell me when the file is saved." });
+    expect(finishedOf(events).suggestions).toEqual([act(1), act(2)]);
+  });
+
+  it("a suggest_next call with no text of its own is not the end: the agent is asked for its answer", async () => {
+    const driver = scriptedDriver([{ calls: [suggest(1)] }, { text: "Here is the answer." }]);
+    const result = await startRun({ ...h.deps, driver }, input);
+    expect(driver.calls).toHaveLength(2);
+    expect(result).toMatchObject({ status: "completed", finalText: "Here is the answer." });
+    expect(result.suggestions).toEqual([act(1)]);
+  });
+
+  it("a suggest_next that was refused does not end the run", async () => {
+    const bad = { name: "suggest_next", input: { actions: [act(1), act(2), act(3), act(4)] } };
+    const driver = scriptedDriver([{ text: "Answer.", calls: [bad] }, { text: "Fixed answer." }]);
+    const result = await startRun({ ...h.deps, driver }, input);
+    expect(driver.calls).toHaveLength(2);
+    expect(result.finalText).toBe("Fixed answer.");
+  });
+
+  it("other tools alongside suggest_next in the same turn mean the turn is not final", async () => {
+    const driver = scriptedDriver([{ text: "Looking.", calls: [suggest(1), { name: "list_files", input: { path: "context" } }] }, { text: "Done." }]);
+    await startRun({ ...h.deps, driver }, input);
+    expect(driver.calls).toHaveLength(2);
+  });
+
+  it("a stray 'Tool calls: ...' line the model copied from the history log never reaches the owner", async () => {
+    const { result } = await runWith([{ text: "Real answer.\n\nTool calls: c5_1 suggest_next {\"actions\":[]}" }]);
+    expect(result.finalText).toBe("Real answer.");
+    const second = await runWith([{ text: "Answer two.", calls: [suggest(1)] }]);
+    expect(second.result.finalText).toBe("Answer two.");
+  });
+});

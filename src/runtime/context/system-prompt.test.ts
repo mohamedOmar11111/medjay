@@ -163,3 +163,22 @@ describe("buildSystemPrompt retry after a refused save", () => {
     expect(text).toMatch(/refuses[^.]*fix[^.]*again/i);
   });
 });
+
+describe("buildSystemPrompt setup concierge", () => {
+  const t = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "context_update", "suggest_next", "growth_scout"] });
+  it("tells the agent to lead the owner step by step: where to go, what to look at, what to save and the exact place", () => {
+    expect(t).toMatch(/one step at a time/i);
+    expect(t).toMatch(/where to go/i);
+    expect(t).toMatch(/what to look at/i);
+    expect(t).toMatch(/what to save/i);
+    expect(t).toMatch(/exact (?:folder|path)/i);
+  });
+  it("uses the export guides and says they are unverified, and asks the owner to report what they see", () => {
+    expect(t).toMatch(/guides/i);
+    expect(t).toMatch(/not been checked|unverified|may differ/i);
+  });
+  it("then calls growth_scout once the owner says the file is saved, and answers in the owner's language", () => {
+    expect(t).toMatch(/growth_scout/);
+    expect(t).toMatch(/language/i);
+  });
+});

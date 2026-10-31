@@ -20,7 +20,7 @@ export type NextSuggestion = z.infer<typeof SuggestionSchema>;
 export const suggestNextTool = defineTool({
   name: "suggest_next",
   description:
-    "End your answer by offering the owner up to three concrete next steps, as a mix of work you can do now with what you have and the one thing that would unlock more. Each has a short label the owner reads (up to 80 characters) and the full request you would act on if they pick it (up to 300 characters, written as the owner would say it). Plain text on one line, no formatting. Call it once, last, after your answer; it changes nothing.",
+    "End your answer by offering the owner up to three concrete next steps, as a mix of work you can do now with what you have and the one thing that would unlock more. Each has a short label the owner reads (up to 80 characters) and the full request you would act on if they pick it (up to 300 characters, written as the owner would say it). Plain text on one line, no formatting. Write your whole answer in the same turn and call this at the same time: calling it ends your turn, so anything you want the owner to read must already be written. It changes nothing.",
   class: "read",
   input: z.object({ actions: z.array(SuggestionSchema).min(1).max(MAX_SUGGESTIONS) }).strict(),
   execute: async ({ actions }) => ({ actions }),
