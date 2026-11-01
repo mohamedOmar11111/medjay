@@ -40,7 +40,7 @@ export interface PermissionRequest {
 }
 
 /** The only waiting tool the terminal app lets the owner allow. Plans are approved with `mdj approve`, typed. */
-const PROMPTABLE_TOOLS: readonly string[] = ["context_update"];
+const PROMPTABLE_TOOLS: readonly string[] = ["context_update", "workspace_profile"];
 const RUN_ID = /^run_[a-z0-9]{1,32}$/;
 const CALL_ID = /^c\d{1,4}_\d{1,4}$/;
 

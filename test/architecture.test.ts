@@ -32,7 +32,7 @@ const ALLOWED: Record<string, string[]> = {
   guide: ["shared"],
   plugins: ["skills", "shared"],
   drafts: ["style", "workspace", "shared"],
-  context: ["analysis", "drafts", "shared"],
+  context: ["analysis", "drafts", "workspace", "pillars", "shared"],
   doctor: ["workspace", "models", "audit", "pillars", "shield", "store", "style", "shared"],
   cli: ["tui", "guide", "skills", "drafts", "plugins", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared", "root"],
   root: ["cli", "tui", "media", "shadow", "vault", "demo", "bridge", "tactics", "analysis", "ingest", "doctor", "workspace", "models", "audit", "pillars", "shield", "store", "plan", "style", "runtime", "shared"],

@@ -6,7 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { loadUnitEconomics } from "../analysis/simulate.js";
 import { exportGuideSummaries, GUIDE_NOTICE } from "../guide/exports.js";
 import { loadPolicy } from "../shield/policy.js";
-import { contextFiles } from "../workspace/init.js";
+import { PLACEHOLDER_NAME, contextFiles } from "../workspace/init.js";
 import { loadWorkspace } from "../workspace/load.js";
 
 export type ContextStatus = "missing" | "empty" | "partial" | "ready";
@@ -90,7 +90,7 @@ export async function readinessOf(dir: string) {
   const files = [await unitEconomicsState(dir), ...(await Promise.all(TEXT_FILES.map((f) => textFileState(dir, f))))];
   const cap = policy.limits.max_total_spend_cap;
   return {
-    workspace: { id: config.workspace.id, name: config.workspace.name, currency: config.workspace.base_currency, language: config.localization.languages.primary, folder: resolve(dir) },
+    workspace: { id: config.workspace.id, name: config.workspace.name, currency: config.workspace.base_currency, language: config.localization.languages.primary, folder: resolve(dir), needs_profile: config.workspace.name === PLACEHOLDER_NAME },
     // each file also carries its full path, so the agent can tell the owner exactly where it lives
     context: { files: files.map((f) => ({ ...f, path: join(resolve(dir), f.file) })), ready_count: files.filter((f) => f.status === "ready").length },
     data: await dataState(dir, dropzoneDir),

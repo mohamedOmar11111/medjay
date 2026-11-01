@@ -54,3 +54,11 @@ export function kickoffPrompt(lang: Language): string {
     "أنا لسا منشئ مساحة عملي وجديد على هذا. استلم أنت إعدادي. استدعِ workspace_readiness أولاً، ثم أرشدني خطوة خطوة بكلام بسيط: وين أروح (أي منصة وأي قائمة)، وايش أشوف أو أختار (أي تقرير وأي فترة وأي أعمدة)، وايش أحفظ وين (المجلد أو الملف بالضبط من نتيجة readiness). اسألني عن معلومات النشاط اللي تحتاجها، سؤالين أو ثلاثة كل مرة، واحفظ إجاباتي أولاً بأول. ابدأ بأنفع خطوة أولى واحدة وقل لي متى أرجع لك.",
   );
 }
+
+/** The first thing the model hears in a new workspace: the owner has just opened Medjay and has said nothing yet. */
+export function welcomePrompt(lang: Language): string {
+  return pick(lang)(
+    "I have just opened Medjay for the first time. I have not told you anything about my business yet. Start our first conversation.",
+    "فتحت Medjay لأول مرة الحين، وما قلت لك شي عن نشاطي للحين. ابدأ أنت أول محادثة بيننا.",
+  );
+}

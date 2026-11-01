@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initWorkspace } from "../workspace/init.js";
+import { initWorkspace, PLACEHOLDER_NAME } from "../workspace/init.js";
 import { readinessOf } from "./readiness.js";
 
 const FIXTURE = join(import.meta.dirname, "..", "..", "fixtures", "etlaala-ksa");
@@ -82,5 +82,14 @@ describe("readiness gives the model absolute places to point the owner to", () =
     expect(r.workspace.folder).toBe(resolve(dir));
     expect(r.context.files.map((f) => f.path)).toEqual(["unit-economics.md", "offer-matrix.md", "brand-voice.md", "claims.md"].map((n) => join(resolve(dir), "context", n)));
     expect(r.data.dropzone).toBe(join(resolve(dir), "data", "imports"));
+  });
+});
+
+describe("readiness tells the model when it has not met the owner yet", () => {
+  it("needs_profile is true for a workspace still carrying the placeholder name, false once it has a real one", async () => {
+    const fresh = join(dir, "..", "fresh");
+    await initWorkspace({ dir: fresh, id: "my-business", name: PLACEHOLDER_NAME, businessType: "ecom" });
+    expect((await readinessOf(fresh)).workspace.needs_profile).toBe(true);
+    expect((await readinessOf(dir)).workspace.needs_profile).toBe(false);
   });
 });

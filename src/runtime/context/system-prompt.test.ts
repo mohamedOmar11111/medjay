@@ -182,3 +182,21 @@ describe("buildSystemPrompt setup concierge", () => {
     expect(t).toMatch(/language/i);
   });
 });
+
+describe("buildSystemPrompt first conversation", () => {
+  const t = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "workspace_profile", "context_update"] });
+  it("is added only when the profile tool exists", () => {
+    expect(t).toMatch(/needs_profile/);
+    expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness"] })).not.toMatch(/needs_profile|workspace_profile/);
+  });
+  it("tells the agent to open with one open question, not a form or a menu, and to infer what it can", () => {
+    expect(t).toMatch(/one open question/i);
+    expect(t).toMatch(/not a form|no form|never a (?:form|menu)/i);
+    expect(t).toMatch(/infer/i);
+  });
+  it("says what a country or a language implies, to say what it understood, and to save it with workspace_profile", () => {
+    expect(t).toMatch(/country[^.]*currency/i);
+    expect(t).toMatch(/what you understood/i);
+    expect(t).toMatch(/workspace_profile/);
+  });
+});

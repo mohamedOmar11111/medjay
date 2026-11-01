@@ -292,3 +292,23 @@ describe("a change that needs the owner's OK", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("the workspace profile change is asked in the app too", () => {
+  const stream = (...events: RunEvent[]) => events.map(encodeEvent).join("");
+  it("offers the same allow-or-deny prompt for workspace_profile", async () => {
+    const out = stream(
+      { type: "run.started", run_id: "run_4", slot: "reasoning" },
+      { type: "permission.requested", call_id: "c1_1", tool: "workspace_profile", summary: "workspace profile: name, base_currency (owner described the business)", diff: "+ name: Etlaala" },
+      { type: "run.finished", status: "needs_human", steps: 1, tokens: { input: 1, output: 1 }, cost_usd: 0, cost_known: true, final_text: "I understood: Etlaala, SAR.", proposals: 0, pending: { call_id: "c1_1", tool: "workspace_profile" } },
+    );
+    const calls: string[][] = [];
+    const runner: Runner = (argv, onChunk) => {
+      calls.push(argv);
+      onChunk(out, "out");
+      return { done: Promise.resolve({ code: 2 }), cancel: () => undefined };
+    };
+    const { ctx } = ctxWith(() => ({}));
+    const r = await askAgent("we sell umrah in Saudi", { ...ctx, runner });
+    expect(r.permission).toMatchObject({ runId: "run_4", callId: "c1_1", tool: "workspace_profile" });
+  });
+});

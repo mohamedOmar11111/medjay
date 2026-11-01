@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectGuide, hasModelKey, kickoffPrompt, readyText } from "./setup-guide.js";
+import { connectGuide, hasModelKey, kickoffPrompt, readyText, welcomePrompt } from "./setup-guide.js";
 
 describe("hasModelKey (reads `mdj auth status`)", () => {
   it("is true when any provider has a key, from the keychain or the environment", () => {
@@ -49,5 +49,12 @@ describe("readyText", () => {
     const t = readyText("/home/me/Medjay/shop", "en");
     expect(t).toContain("/home/me/Medjay/shop");
     expect(t).toMatch(/ready/i);
+  });
+});
+
+describe("welcomePrompt", () => {
+  it("is the owner opening Medjay for the first time, with no questions answered yet", () => {
+    expect(welcomePrompt("en")).toMatch(/first time/i);
+    expect(welcomePrompt("ar")).toMatch(/[\u0600-\u06FF]/);
   });
 });

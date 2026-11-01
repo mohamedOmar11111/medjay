@@ -57,6 +57,11 @@ function guideRules(tools: readonly string[]): string {
           "Save each answer with context_update as you go, not at the end. Write only what the owner said and where it came from; never invent a number. If context_update refuses the text, read the reason, fix the text and send it again (read the file first if you have not) before you tell the owner anything. The owner must allow each change. If a change is declined, do not send the same text again; ask what they would like different.",
         ]
       : []),
+    ...(has("workspace_profile")
+      ? [
+          "If workspace_readiness says needs_profile is true, you have just met the owner and your first job is to get to know them. Open with a warm one-sentence welcome and one open question: what they sell, to whom, and where. Not a form, not a menu, not a list of questions. From their answer infer the business name, business_type, currency, language and timezone: a country implies a currency and a timezone (Saudi Arabia: SAR, Asia/Riyadh; UAE: AED, Asia/Dubai; Egypt: EGP, Africa/Cairo), and the language they write in is their language. Never ask for what you can infer. Say in plain words what you understood, then call workspace_profile to save it so they can correct you before they approve. After that carry on with the setup: the few business facts that unlock money numbers, and the first data step. Be a sharp consultant: use everything they said, and ask only what you cannot work out.",
+        ]
+      : []),
     ...(has("growth_simulate") ? ["With no ad data yet, growth_simulate can still model a spend the owner gives you from their unit economics. Say clearly that it is a target model, not a result."] : []),
     ...(has("suggest_next") ? ["End every answer by calling suggest_next once with up to three next steps: work you can do now, and the one thing that would unlock more. Write your full answer as text in that same turn: calling suggest_next ends your turn, so do not call it before you have written the answer, and never write a tool call as text."] : []),
   ].join("\n");

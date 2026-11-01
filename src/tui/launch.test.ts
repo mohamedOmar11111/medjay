@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { parse, stringify } from "yaml";
 import { parseInput, resolveInput } from "./commands.js";
 import { spawnRunner } from "./runner.js";
 
@@ -27,6 +28,11 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "medjay-tui-"));
   ws = join(root, "ws");
   await exec(process.execPath, [CLI, "init", ws, "--id", "ws", "--currency", "SAR", "--business-type", "ecom"], { cwd: REPO });
+  // a model that cannot be reached, so a run fails the same way on every machine, whatever keys are in its keychain
+  const file = join(ws, "workspace.yaml");
+  const doc = parse(await readFile(file, "utf8")) as { models: { slots: Record<string, { primary: Record<string, unknown> }> } };
+  for (const slot of Object.values(doc.models.slots)) slot.primary = { provider: "ollama", model: "none", base_url: "http://127.0.0.1:9/v1" };
+  await writeFile(file, stringify(doc));
   const drop = join(ws, "data", "imports");
   await mkdir(drop, { recursive: true });
   await copyFile(join(REPO, "fixtures", "etlaala-ksa", "data", "imports", "meta-ads-2026-10-10_16.csv"), join(drop, "meta-ads-2026-10-10_16.csv"));

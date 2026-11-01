@@ -512,55 +512,84 @@ describe("the model takes over", () => {
     t.unmount();
   });
 
-  async function created(t: ReturnType<typeof mount>, status: string) {
-    await t.send("Shop");
-    await t.send("1");
-    await t.send("AED");
-    await t.send("yes");
+  const WELCOME = (text: string): RunEvent => ({ type: "run.finished", status: "completed", steps: 1, tokens: { input: 5, output: 5 }, cost_usd: 0.0001, cost_known: true, final_text: text, proposals: 0 });
+
+  async function firstRun(status: string) {
+    const t = mount({ workspaceDir: null, agentFirst: true });
+    await wait();
+    expect(t.calls[0]!.argv).toEqual(["auth", "status"]);
+    t.calls[0]!.emit(status);
     t.calls[0]!.finish(0);
-    await wait(80);
-    t.calls[1]!.finish(0); // models use auto
-    await wait(80);
-    t.calls[2]!.emit(status); // auth status
-    t.calls[2]!.finish(0);
-    await wait(100);
+    await wait();
+    return t;
   }
 
-  it("right after setup, with a key stored, hands the setup to the model as the owner's own request", async () => {
-    const t = mount({ workspaceDir: null, agentFirst: true });
-    await created(t, "anthropic              not set\ngoogle                 keychain\n");
-    expect(t.frame()).toContain("Your workspace is ready");
+  it("first run with a key stored: no questionnaire; the app makes a placeholder workspace and the model opens the conversation", async () => {
+    const onWorkspace = vi.fn();
+    const t = mount({ workspaceDir: null, agentFirst: true, onWorkspace });
+    await wait();
+    t.calls[0]!.emit("anthropic              not set\ngoogle                 keychain\n");
+    t.calls[0]!.finish(0);
+    await wait();
+    expect(t.calls[1]!.argv.slice(0, 2)).toEqual(["init", expect.stringMatching(/my-business$/)]);
+    expect(t.calls[1]!.argv).toEqual(expect.arrayContaining(["--name", "My business"]));
+    t.calls[1]!.finish(0);
+    await wait();
+    expect(t.calls[2]!.argv.slice(0, 3)).toEqual(["models", "use", "auto"]);
+    t.calls[2]!.finish(0);
+    await wait();
     expect(t.calls[3]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
-    expect(t.calls[3]!.argv[5]).toContain("workspace_readiness");
-    expect(t.calls[3]!.argv[5]).toMatch(/where to go/);
-    t.calls[3]!.emit(ev(DONE("Welcome! Step 1: ...")));
+    expect(t.calls[3]!.argv[5]).toMatch(/first time/i);
+    expect(t.frame()).not.toContain("What best describes you?");
+    expect(t.frame()).not.toContain("called?");
+    expect(onWorkspace).toHaveBeenCalledWith(expect.stringMatching(/my-business$/));
+    t.calls[3]!.emit(ev(WELCOME("Welcome! Tell me about your business: what do you sell, to whom, and where?")));
     t.calls[3]!.finish(0);
-    await wait(150);
-    expect(t.frame()).toContain("Welcome! Step 1");
+    await wait(200);
+    expect(t.frame()).toContain("what do you sell, to whom, and");
     t.unmount();
   });
 
-  it("with no key yet, explains how to get one, then starts the setup by itself once /connect works", async () => {
-    const t = mount({ workspaceDir: null, agentFirst: true });
-    await created(t, "google                 not set\n");
+  it("if my-business already exists it tries my-business-2", async () => {
+    const t = await firstRun("google                 keychain\n");
+    t.calls[1]!.finish(1); // a workspace already exists there
+    await wait();
+    expect(t.calls[2]!.argv[1]).toMatch(/my-business-2$/);
+    t.unmount();
+  });
+
+  it("first run with no key: explains how to get one first, ignores other typing, and offers a quick form as a way out", async () => {
+    const t = await firstRun("google                 not set\n");
     expect(t.frame()).toContain("aistudio.google.com/apikey");
-    expect(t.calls).toHaveLength(3); // nothing asked of the model yet
+    expect(t.frame()).toContain("skip");
+    await t.send("hello there");
+    expect(t.calls).toHaveLength(1);
+    expect(t.frame()).toContain("/connect");
+    t.unmount();
+  });
+
+  it("then /connect stores the key and the conversation starts by itself", async () => {
+    const t = await firstRun("google                 not set\n");
     await t.send("/connect google");
     await t.type("AIza-secret");
     t.stdin.write("\r");
-    await wait(60);
-    expect(t.calls[3]!.argv).toEqual(["auth", "set", "google"]);
-    t.calls[3]!.finish(0);
-    await wait(80);
-    expect(t.calls[4]!.argv.slice(0, 3)).toEqual(["models", "use", "google"]);
-    t.calls[4]!.emit("all model slots now use google/gemini-2.5-flash\n");
-    t.calls[4]!.finish(0);
-    await wait(80);
-    t.calls[5]!.emit("OK\n"); // the key test
-    t.calls[5]!.finish(0);
-    await wait(100);
-    expect(t.calls[6]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
-    expect(t.calls[6]!.argv[5]).toContain("workspace_readiness");
+    await wait();
+    expect(t.calls[1]!.argv).toEqual(["auth", "set", "google"]);
+    t.calls[1]!.finish(0);
+    await wait();
+    expect(t.calls[2]!.argv[0]).toBe("init");
+    t.calls[2]!.finish(0);
+    await wait();
+    t.calls[3]!.finish(0); // models use auto
+    await wait();
+    expect(t.calls[4]!.argv.slice(0, 2)).toEqual(["run", "--events"]);
+    t.unmount();
+  });
+
+  it("'skip' falls back to the quick form", async () => {
+    const t = await firstRun("google                 not set\n");
+    await t.send("skip");
+    expect(t.frame()).toContain("called?");
     t.unmount();
   });
 });

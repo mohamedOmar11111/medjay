@@ -3,6 +3,7 @@
 // so Shield, policy and the ledger apply unchanged) and answers in plain language. It never approves
 // or applies a plan: that stays a typed action in a terminal. The one thing it can ask you is whether the
 // agent may update one of your four context files (A allows that one change once, D or Esc declines).
+import { join } from "node:path";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { answerIntent, askAgent, resumeAgent, type AskContext, type PermissionRequest, type Reply } from "./ask.js";
@@ -15,7 +16,8 @@ import { detectLanguage, routeIntent, toLatinDigits, type Language, type Routed 
 import { classifyModelFailure } from "./model-errors.js";
 import type { RunEvent } from "../run-events.js";
 import { startOnboarding, stepOnboarding, type OnboardState } from "./onboarding.js";
-import { connectGuide, hasModelKey, kickoffPrompt, readyText } from "./setup-guide.js";
+import { connectGuide, hasModelKey, kickoffPrompt, readyText, welcomePrompt } from "./setup-guide.js";
+import { PLACEHOLDER_NAME } from "../workspace/init.js";
 import type { Runner, RunHandle } from "./runner.js";
 import { COMPACT_BANNER } from "./splash.js";
 import { lastWindow } from "./text.js";
@@ -115,6 +117,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const [entries, setEntries] = useState<Entry[]>(() => {
     const first: Entry = { id: 1, kind: "splash", text: splashText() };
     if (workspaceDir) return [first, { id: 2, kind: "answer", text: renderAnswer(helpAnswer("en", true), "en") }];
+    if (agentFirst) return [first, { id: 2, kind: "info", text: "Checking your setup…" }];
     const started = startOnboarding("en");
     onboardRef.current = started.state;
     return [first, { id: 2, kind: "out", text: `${started.say}\n\n${startOnboarding("ar").say}` }];
@@ -140,6 +143,8 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   const permissionRef = useRef<PermissionRequest | null>(null);
   /** Set after setup when there was no model key yet: the model starts the setup as soon as a key works. */
   const kickoffPending = useRef(false);
+  /** First run, model-led: waiting for the owner to connect an AI model before the conversation can start. */
+  const needKey = useRef(false);
   const [secretLen, setSecretLen] = useState(0);
   const [tick, setTick] = useState(0);
   const running = useRef<RunHandle | null>(null);
@@ -324,6 +329,49 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
   );
 
   /** First-run setup: collect answers, then run the init command through the CLI. */
+  /** First run with a model key: make a placeholder workspace and let the model open the conversation. */
+  const beginConversation = useCallback(() => {
+    const lang = langRef.current;
+    needKey.current = false;
+    cancelled.current = false;
+    setBusy(pick(lang)("preparing your workspace", "أجهّز مساحة عملك"));
+    const attempt = (n: number) => {
+      const name = n === 1 ? "my-business" : `my-business-${n}`;
+      const dir = join(baseFolder, name);
+      void tracked(["init", dir, "--id", name, "--name", PLACEHOLDER_NAME, "--business-type", "ecom", "--currency", "USD"], () => undefined).done.then(({ code }) => {
+        running.current = null;
+        if (code !== 0) {
+          if (n < 6) return attempt(n + 1);
+          setBusy(null);
+          return void add("err", pick(lang)("I couldn't create a workspace folder. Check that the Medjay folder in your home directory can be written to.", "ما قدرت أنشئ مجلد مساحة العمل. تأكد أنه يمكن الكتابة في مجلد Medjay داخل مجلد المستخدم."));
+        }
+        setWs(dir);
+        onWorkspaceRef.current?.(dir);
+        void tracked(["models", "use", "auto", "--workspace", dir], () => undefined).done.then(() => {
+          running.current = null;
+          setBusy(null);
+          add("info", pick(lang)(`Workspace folder: ${dir}`, `مجلد مساحة العمل: ${dir}`));
+          void refresh(dir);
+          ask(null, welcomePrompt(lang), lang);
+        });
+      });
+    };
+    attempt(1);
+  }, [add, ask, baseFolder, refresh, tracked]);
+
+  useEffect(() => {
+    if (workspaceDir !== null || !agentFirst) return;
+    let status = "";
+    void tracked(["auth", "status"], (chunk, stream) => void (stream === "out" && (status += chunk))).done.then(() => {
+      running.current = null;
+      if (hasModelKey(status)) return beginConversation();
+      needKey.current = true;
+      add("answer", `${connectGuide(langRef.current)}\n\n${pick(langRef.current)('(No key to hand? Type "skip" for a quick form instead; I will be much less capable without a model.)', '(ما عندك مفتاح الحين؟ اكتب "skip" لنموذج سريع بدلاً منه؛ سأكون أقل قدرة بدون نموذج.)')}`);
+    });
+    // runs once, when the app opens without a workspace
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onboard = useCallback(
     (text: string) => {
       const state = onboardRef.current;
@@ -397,6 +445,10 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         if (dir === null) {
           running.current = null;
           setBusy(null);
+          if (needKey.current) {
+            add("info", pick(lang)("Key stored. Setting up your workspace…", "انحفظ المفتاح. أجهّز مساحة عملك…"));
+            return beginConversation();
+          }
           return void add("info", pick(lang)("Key stored. Once a workspace is set up, ask me something to test it.", "انحفظ المفتاح. بعد ما تجهز مساحة العمل اسألني أي شي لتجربته."));
         }
         // Connecting a provider on purpose means the person wants to use it, so the workspace is pointed at it
@@ -424,7 +476,7 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
         });
       });
     },
-    [add, ask, tracked],
+    [add, ask, beginConversation, tracked],
   );
 
   const runShortcut = useCallback(
@@ -484,6 +536,17 @@ export function App({ workspaceDir, baseDir, runner, load, version, size: sizeOv
       setHistory((h) => (h[h.length - 1] === text ? h : [...h, text]));
       setHistoryAt(null);
       add("user", text);
+      if (needKey.current) {
+        // Model-led first run, no key yet: only /connect (or "skip" for the quick form) moves things on.
+        if (/^\/connect(?:\s|$)/i.test(text)) return runShortcut(text);
+        if (/^skip$/i.test(text)) {
+          needKey.current = false;
+          const started = startOnboarding(langRef.current);
+          onboardRef.current = started.state;
+          return void add("out", started.say);
+        }
+        return void add("info", pick(langRef.current)("First I need an AI model key to think with you: type /connect google (or openai, anthropic) and paste the key. Or type skip for a quick form.", "أول شي أحتاج مفتاح نموذج: اكتب /connect google (أو openai أو anthropic) والصق المفتاح. أو اكتب skip لنموذج سريع."));
+      }
       if (onboardRef.current !== null) {
         // During setup a "/connect <provider>" stores the key now (setup then picks the provider that has one);
         // any other shortcut waits, and is never taken for the business name.

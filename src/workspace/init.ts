@@ -8,6 +8,9 @@ import { VERSION } from "../version.js";
 import { WORKSPACE_FILE } from "./errors.js";
 import { SCHEMA_VERSION, WorkspaceSchema } from "./schema.js";
 
+/** The name of a workspace whose owner has not yet told the AI model about the business. */
+export const PLACEHOLDER_NAME = "My business";
+
 export interface InitOptions {
   dir: string;
   id: string;
