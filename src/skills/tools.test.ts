@@ -11,13 +11,14 @@ describe("declaredTools", () => {
 });
 
 describe("translateTools", () => {
-  it("maps Read and Glob to tools that exist, and says which are not available yet", () => {
+  it("maps Read, Glob and WebSearch to tools that exist, and says which are not available yet", () => {
     const t = translateTools(["Read", "Glob", "Grep", "Write", "Edit", "WebFetch", "WebSearch"]);
     expect(t.mapped).toEqual([
       { from: "Read", to: "read_file", class: "read" },
       { from: "Glob", to: "list_files", class: "read" },
+      { from: "WebSearch", to: "web_search", class: "read" },
     ]);
-    expect(t.unavailable.map((u) => `${u.from}->${u.to}`)).toEqual(["Grep->search_files", "Write->draft_save", "Edit->draft_edit", "WebFetch->web_fetch", "WebSearch->web_search"]);
+    expect(t.unavailable.map((u) => `${u.from}->${u.to}`)).toEqual(["Grep->search_files", "Write->draft_save", "Edit->draft_edit", "WebFetch->web_fetch"]);
   });
   it("never maps a shell: it is stripped", () => {
     const t = translateTools(["Bash", "Shell", "PowerShell"]);

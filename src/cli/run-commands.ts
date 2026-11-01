@@ -7,6 +7,7 @@ import { resumeRun } from "../runtime/loop/resume.js";
 import { startRun, type RunDeps, type RunResult } from "../runtime/loop/run.js";
 import { encodeEvent } from "../run-events.js";
 import { createGrowthPort } from "./growth-port.js";
+import { createSearchPort } from "./search-port.js";
 import { cliActor, guarded, workspaceDirOrThrow } from "./util.js";
 
 const EXIT: Record<RunStatus, number> = {
@@ -75,7 +76,7 @@ export function registerRunCommands(program: Command): void {
     .action((task: string, opts: { surface: UsageSurface; slot: SlotName; events?: boolean; workspace?: string }) =>
       guarded(async () => {
         const dir = await workspaceDirOrThrow(opts.workspace);
-        const opened = await openRun({ dir, slot: opts.slot, actor: cliActor(), growth: createGrowthPort(dir) });
+        const opened = await openRun({ dir, slot: opts.slot, actor: cliActor(), growth: createGrowthPort(dir), search: createSearchPort(dir, { slot: opts.slot }) });
         const interrupt = abortOnInterrupt();
         try {
           const result = await startRun(withEvents(opened.deps, opts.events), { task, surface: opts.surface, slot: opts.slot }, interrupt.signal);
@@ -101,7 +102,7 @@ export function registerRunCommands(program: Command): void {
         const probe = await openRun({ dir, slot: "reasoning", actor: cliActor(), driver: NO_MODEL });
         const slot = new RunRepo(probe.store).get(runId)?.slot ?? "reasoning";
         probe.close();
-        const opened = await openRun({ dir, slot, actor: cliActor(), growth: createGrowthPort(dir) });
+        const opened = await openRun({ dir, slot, actor: cliActor(), growth: createGrowthPort(dir), search: createSearchPort(dir, { slot }) });
         const interrupt = abortOnInterrupt();
         try {
           const result = await resumeRun(withEvents(opened.deps, opts.events), runId, { ...(opts.approveTool ? { approveTool: opts.approveTool } : {}), ...(opts.denyTool ? { denyTool: opts.denyTool } : {}) }, interrupt.signal);

@@ -31,12 +31,12 @@ const TABLE: Record<string, Entry> = {
   Glob: { to: "list_files", class: "read", reason: "" },
   Grep: { to: "search_files", class: "read", reason: "workspace text search is not built yet" },
   WebFetch: { to: "web_fetch", class: "read", reason: "web tools are not built yet" },
-  WebSearch: { to: "web_search", class: "read", reason: "web tools are not built yet" },
+  WebSearch: { to: "web_search", class: "read", reason: "" },
   Write: { to: "draft_save", class: "draft", reason: "the drafts store is not built yet" },
   Edit: { to: "draft_edit", class: "draft", reason: "the drafts store is not built yet" },
 };
-/** Medjay tools that exist today. Update when search_files, the drafts tools and the web tools land. */
-const AVAILABLE = new Set(["read_file", "list_files"]);
+/** Medjay tools that exist today. Update when search_files, the drafts tools and web_fetch land. */
+const AVAILABLE = new Set(["read_file", "list_files", "web_search"]);
 const SHELL = new Set(["Bash", "Shell", "PowerShell", "Terminal"]);
 
 export function declaredTools(frontmatter: Record<string, unknown>): string[] {

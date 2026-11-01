@@ -200,3 +200,79 @@ describe("buildSystemPrompt first conversation", () => {
     expect(t).toMatch(/workspace_profile/);
   });
 });
+
+describe("buildSystemPrompt strategist (first conversation with the profile tool)", () => {
+  const tools = ["workspace_readiness", "workspace_profile", "context_update", "growth_simulate", "suggest_next"];
+  const t = buildSystemPrompt({ ...base, surface: "internal", tools });
+  it("is added only when the profile tool exists", () => {
+    expect(t).toMatch(/senior growth marketer/i);
+    expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness"] })).not.toMatch(/senior growth marketer/i);
+  });
+  it("says back the business and the money lever, then challenges up to two plans with a reason, an alternative and what would change its mind", () => {
+    expect(t).toMatch(/biggest money lever/i);
+    expect(t).toMatch(/up to two/i);
+    expect(t).toMatch(/what would change your mind/i);
+  });
+  it("shows a six-step plan every turn and asks at most two questions", () => {
+    expect(t).toMatch(/\[done\], \[now\] or \[next\]/);
+    expect(t).toMatch(/at most two questions/i);
+  });
+  it("applies market knowledge as a labelled starting assumption, and picks the channel for the first budget", () => {
+    expect(t).toMatch(/my starting assumption/i);
+    expect(t).toMatch(/WhatsApp/);
+    expect(t).toMatch(/runner-up/i);
+  });
+  it("writes full drafts after the interview: offer matrix, ads in the owner's language, landing page, never published", () => {
+    expect(t).toMatch(/offer matrix/i);
+    expect(t).toMatch(/3 angles x 2 variants/);
+    expect(t).toMatch(/landing page/i);
+    expect(t).toMatch(/nothing is published/i);
+  });
+  it("asks once whether it is the owner or an agency setting up a client", () => {
+    expect(t).toMatch(/owner, or setting this up for a client/i);
+  });
+  it("never lets an invented number pass as a benchmark, with or without search", () => {
+    expect(t).toMatch(/my estimate, verify/);
+    expect(t).not.toMatch(/web_search/);
+  });
+});
+
+describe("buildSystemPrompt web search", () => {
+  const withSearch = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "workspace_profile", "web_search"] });
+  it("is added only when the search tool exists", () => {
+    expect(withSearch).toMatch(/web_search/);
+    expect(buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness"] })).not.toMatch(/web_search/);
+  });
+  it("searches the vertical and market before choosing a channel or quoting a figure", () => {
+    expect(withSearch).toMatch(/before (?:you )?choos\w+ a channel/i);
+  });
+  it("quotes a benchmark only from a search result, with its source and year, and shows disagreement as a range", () => {
+    expect(withSearch).toMatch(/only[^.]*search result/i);
+    expect(withSearch).toMatch(/\[metric\], \[vertical\], \[country\]: \[low\]-\[high\] \[currency\] \(\[source\], \[year\]\)/);
+    expect(withSearch).toMatch(/disagree[^.]*range/i);
+  });
+  it("keeps the owner's private details out of the query and treats results as data", () => {
+    expect(withSearch).toMatch(/never put[^.]*(?:private|owner)[^.]*query/i);
+    expect(withSearch).toMatch(/data, never (?:as )?instructions/i);
+  });
+});
+
+describe("buildSystemPrompt first reply sequence", () => {
+  it("saves the profile in the same turn instead of waiting for a yes, because the owner approves the save anyway", () => {
+    const t = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "workspace_profile"] });
+    expect(t).toMatch(/call workspace_profile in the same turn/i);
+  });
+  it("searches in the first reply after the owner describes the business, before answering", () => {
+    const t = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "workspace_profile", "web_search"] });
+    expect(t).toMatch(/first reply[^.]*web_search/i);
+    expect(t).toMatch(/before you answer/i);
+  });
+});
+
+describe("buildSystemPrompt search is run, not announced", () => {
+  it("forbids saying a search will happen and then stopping", () => {
+    const t = buildSystemPrompt({ ...base, surface: "internal", tools: ["workspace_readiness", "workspace_profile", "web_search"] });
+    expect(t).toMatch(/never (?:say|announce)[^.]*(?:search|look)[^.]*(?:then )?(?:stop|end)/i);
+    expect(t).toMatch(/answer comes after the results/i);
+  });
+});

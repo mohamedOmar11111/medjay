@@ -25,6 +25,7 @@ import { contextTools } from "../tools/context-update.js";
 import { draftTools } from "../tools/drafts.js";
 import { growthTools, type GrowthPort } from "../tools/growth.js";
 import { skillTools } from "../tools/skills.js";
+import { searchTools, type SearchPort } from "../tools/web-search.js";
 import { resolveClientFiles } from "../client-files.js";
 import { createBuiltinTools } from "../tools/index.js";
 import { createAiSdkDriver } from "./driver.js";
@@ -48,6 +49,8 @@ export interface OpenRunOptions {
   now?: () => Date;
   /** The analyses the growth tools call; without it the agent has only the built-in tools. */
   growth?: GrowthPort;
+  /** Live web search for the agent; without it there is no web_search tool. */
+  search?: SearchPort;
   /** Where ~/.medjay and ~/.claude are looked for (tests); defaults to the user's home. */
   home?: string;
 }
@@ -92,6 +95,7 @@ export async function openRun(options: OpenRunOptions): Promise<OpenedRun> {
   });
   for (const tool of profileTools(profileStore)) registry.register(tool);
   if (options.growth) for (const tool of growthTools(options.growth)) registry.register(tool);
+  if (options.search) for (const tool of searchTools(options.search)) registry.register(tool);
   const home = options.home ?? homedir();
   const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") || p.startsWith("~\\") ? join(home, p.slice(2)) : p);
   const mounts = config.mounts.map((m) => {

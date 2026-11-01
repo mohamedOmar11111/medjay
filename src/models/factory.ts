@@ -1,6 +1,6 @@
 // Builds an AI SDK language model for a resolved slot target. The credential is passed in by the
 // caller (resolved via CredentialResolver); nothing here reads the environment.
-import type { LanguageModel } from "ai";
+import type { LanguageModel, ToolSet } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -14,6 +14,37 @@ const VENDOR_BASE_URL = {
   google: "https://generativelanguage.googleapis.com/v1beta",
   openai: "https://api.openai.com/v1",
 } as const;
+
+export interface SearchModel {
+  model: LanguageModel;
+  /** The provider's own web search tool: the vendor runs the search and returns the sources. */
+  tools: ToolSet;
+}
+
+/**
+ * A model with its vendor's built-in web search, for the three vendors that offer one. Anything else
+ * (Ollama, a custom endpoint, a proxy) has no search to offer, so this returns undefined.
+ */
+export function createSearchModel(target: ResolvedTarget, apiKey?: string): SearchModel | undefined {
+  if (!target.credentialRequired) return undefined;
+  const { provider, model, baseURL } = target;
+  switch (provider) {
+    case "anthropic": {
+      const vendor = createAnthropic({ apiKey, baseURL: baseURL ?? VENDOR_BASE_URL.anthropic });
+      return { model: vendor(model), tools: { web_search: vendor.tools.webSearch_20250305({ maxUses: 3 }) } };
+    }
+    case "google": {
+      const vendor = createGoogleGenerativeAI({ apiKey, baseURL: baseURL ?? VENDOR_BASE_URL.google });
+      return { model: vendor(model), tools: { google_search: vendor.tools.googleSearch({}) } };
+    }
+    case "openai": {
+      const vendor = createOpenAI({ apiKey, baseURL: baseURL ?? VENDOR_BASE_URL.openai });
+      return { model: vendor(model), tools: { web_search: vendor.tools.webSearch({}) } };
+    }
+    default:
+      return undefined;
+  }
+}
 
 export function createLanguageModel(target: ResolvedTarget, apiKey?: string): LanguageModel {
   const { provider, model, baseURL } = target;
